@@ -1,6 +1,9 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.dto;
 
+import com.olehprukhnytskyi.util.UnitType;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -35,4 +38,7 @@ public class FoodResponseDto {
 
     @Schema(description = "Nutrition information")
     private NutrimentsDto nutriments;
+
+    @Builder.Default
+    private List<UnitType> availableUnits = new ArrayList<>();
 }

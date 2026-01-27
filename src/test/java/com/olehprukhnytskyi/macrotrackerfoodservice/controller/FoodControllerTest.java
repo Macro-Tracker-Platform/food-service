@@ -45,6 +45,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.service.S3StorageService;
 import com.olehprukhnytskyi.model.OutboxEvent;
 import com.olehprukhnytskyi.repository.jpa.OutboxRepository;
 import com.olehprukhnytskyi.util.CustomHeaders;
+import com.olehprukhnytskyi.util.UnitType;
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
 import java.util.Collections;
@@ -129,6 +130,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
         foodResponseDto.setBrands("Brands");
         foodResponseDto.setImageUrl("https://image.url");
         foodResponseDto.setNutriments(nutrimentsDto);
+        foodResponseDto.setAvailableUnits(List.of(UnitType.GRAMS));
 
         food = Food.builder()
                 .productName("Product name")
@@ -184,6 +186,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .code(foodId)
                 .userId(1L)
                 .productName("Rice")
+                .availableUnits(List.of(UnitType.GRAMS))
                 .build();
 
         when(foodService.findById(foodId)).thenReturn(foodDto);
@@ -511,6 +514,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .code("11111111")
                 .productName("New product name")
                 .userId(1L)
+                .availableUnits(List.of(UnitType.GRAMS))
                 .build();
         String expected = objectMapper.writeValueAsString(responseDto);
 

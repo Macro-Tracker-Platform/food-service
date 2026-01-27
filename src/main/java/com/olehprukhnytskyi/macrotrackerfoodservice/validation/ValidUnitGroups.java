@@ -11,7 +11,7 @@ import java.lang.annotation.Target;
 @Target({ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
 @Constraint(validatedBy = NutrimentsValidator.class)
-public @interface AtLeastOneNutrientPresent {
+public @interface ValidUnitGroups {
     String message() default "At least one nutrient must be filled";
     Class<?>[] groups() default {};
     Class<? extends Payload>[] payload() default {};
