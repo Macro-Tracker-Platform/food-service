@@ -54,6 +54,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
+import net.javacrumbs.shedlock.core.LockProvider;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -81,6 +82,8 @@ class FoodControllerTest extends AbstractIntegrationTest {
     @Autowired
     private NutrimentsMapper nutrimentsMapper;
 
+    @MockitoBean
+    private LockProvider lockProvider;
     @MockitoBean
     private S3Client s3Client;
     @MockitoBean

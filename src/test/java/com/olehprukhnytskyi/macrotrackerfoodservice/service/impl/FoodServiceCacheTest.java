@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
+import net.javacrumbs.shedlock.core.LockProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
@@ -39,6 +40,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.util.DigestUtils;
 
 class FoodServiceCacheTest extends AbstractIntegrationTest {
+    @MockitoBean
+    private LockProvider lockProvider;
     @MockitoBean
     private FoodRepository foodRepository;
     @MockitoBean
