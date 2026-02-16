@@ -80,7 +80,11 @@ public class ImageService {
 
     public String generateImageKey(MultipartFile file, String foodId, int imageWidth) {
         String format = detectImageFormat(file);
-        String key = "images/products/" + foodId + "/" + imageWidth + "." + format;
+        return buildImageKey(foodId, imageWidth, format);
+    }
+
+    public String buildImageKey(String foodId, int width, String format) {
+        String key = "images/products/" + foodId + "/" + width + "." + format;
         log.trace("Generated image key={}", key);
         return key;
     }

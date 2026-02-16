@@ -164,14 +164,16 @@ class FoodServiceCacheTest extends AbstractIntegrationTest {
     void patch_shouldUpdateCache() {
         // Given
         String id = "11111111";
+        Long userId = 1L;
         Food entity = Food.builder()
                 .id(id)
                 .code(id)
-                .userId(1L)
+                .userId(userId)
                 .productName("Old name")
                 .build();
 
         when(foodRepository.findById(id)).thenReturn(Optional.of(entity));
+        when(foodRepository.findByIdAndUserId(id, userId)).thenReturn(Optional.of(entity));
         when(foodRepository.save(any(Food.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -180,7 +182,7 @@ class FoodServiceCacheTest extends AbstractIntegrationTest {
         assertThat(before.getProductName()).isEqualTo("Old name");
         foodService.patch(id, FoodPatchRequestDto.builder()
                 .productName("New name")
-                .build());
+                .build(), userId);
         foodService.findById(id);
 
         // Then

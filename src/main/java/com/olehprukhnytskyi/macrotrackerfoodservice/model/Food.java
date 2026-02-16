@@ -1,6 +1,7 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.persistence.Version;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -21,6 +22,9 @@ public class Food {
     @Field(name = "_id")
     @JsonProperty("_id")
     private String id;
+
+    @Version
+    private Long version;
 
     @Indexed(unique = true)
     private String code;

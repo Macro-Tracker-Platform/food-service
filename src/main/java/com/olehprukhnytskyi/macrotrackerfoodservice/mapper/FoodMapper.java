@@ -23,7 +23,8 @@ public interface FoodMapper {
             @Mapping(target = "id", ignore = true),
             @Mapping(target = "keywords", ignore = true),
             @Mapping(target = "imageUrl", ignore = true),
-            @Mapping(target = "userId", ignore = true)
+            @Mapping(target = "userId", ignore = true),
+            @Mapping(target = "version", ignore = true)
     })
     Food toModel(FoodRequestDto requestDto);
 
@@ -38,7 +39,8 @@ public interface FoodMapper {
             @Mapping(target = "code", ignore = true),
             @Mapping(target = "imageUrl", ignore = true),
             @Mapping(target = "userId", ignore = true),
-            @Mapping(target = "nutriments.availableUnits", ignore = true)
+            @Mapping(target = "nutriments.availableUnits", ignore = true),
+            @Mapping(target = "version", ignore = true)
     })
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateFoodFromPatchDto(FoodPatchRequestDto dto, @MappingTarget Food entity);

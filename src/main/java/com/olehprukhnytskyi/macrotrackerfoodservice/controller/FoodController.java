@@ -155,9 +155,10 @@ public class FoodController {
     @PatchMapping("/{id}")
     public ResponseEntity<FoodResponseDto> patch(
             @PathVariable String id,
-            @RequestBody @Valid FoodPatchRequestDto dto) {
+            @RequestBody @Valid FoodPatchRequestDto dto,
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId) {
         log.info("Updating food with id={}", id);
-        FoodResponseDto updated = foodService.patch(id, dto);
+        FoodResponseDto updated = foodService.patch(id, dto, userId);
         log.debug("Food updated successfully for id={}", id);
         return ResponseEntity.ok(updated);
     }

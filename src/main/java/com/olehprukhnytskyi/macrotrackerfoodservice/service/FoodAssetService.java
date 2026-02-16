@@ -2,11 +2,12 @@ package com.olehprukhnytskyi.macrotrackerfoodservice.service;
 
 import com.olehprukhnytskyi.exception.InternalServerException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
-import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import java.io.ByteArrayInputStream;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 @Slf4j
@@ -17,25 +18,36 @@ public class FoodAssetService {
     private final S3StorageService s3StorageService;
     private final ImageService imageService;
 
-    public void processAndUploadImage(Food food, MultipartFile image) {
-        if (image == null) {
-            return;
-        }
-        log.debug("Processing image for food id={}", food.getId());
+    public String uploadToTemp(MultipartFile image) {
+        log.debug("Starting temp upload for image: {}", image.getOriginalFilename());
         try {
             imageService.validateImage(image);
             ByteArrayInputStream resizedStream = imageService
                     .resizeImage(image, FOOD_IMAGE_SIZE);
-            String imageKey = imageService
-                    .generateImageKey(image, food.getId(), FOOD_IMAGE_SIZE);
-            String imageUrl = s3StorageService.uploadFile(resizedStream,
-                    resizedStream.available(), imageKey, image.getContentType());
-            food.setImageUrl(imageUrl);
-            log.trace("Image uploaded successfully key={}", imageKey);
+            String format = imageService.detectImageFormat(image);
+            String tempKey = "tmp/" + UUID.randomUUID() + "." + format;
+            s3StorageService.uploadFile(resizedStream,
+                    resizedStream.available(), tempKey, image.getContentType());
+            log.debug("Image uploaded to temp: {}", tempKey);
+            return tempKey;
         } catch (Exception e) {
-            log.error("Error processing image for food id={}", food.getId(), e);
+            log.error("Failed to upload temp image", e);
             throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
-                    "Error processing image", e);
+                    "Error processing image upload", e);
         }
+    }
+
+    public String confirmImage(String tempKey, String foodId) {
+        log.debug("Confirming image {} for foodId={}", tempKey, foodId);
+        String extension = getExtension(tempKey);
+        String finalKey = imageService.buildImageKey(foodId, FOOD_IMAGE_SIZE, extension);
+        return s3StorageService.moveObject(tempKey, finalKey);
+    }
+
+    private String getExtension(String filename) {
+        if (StringUtils.hasText(filename) && filename.contains(".")) {
+            return filename.substring(filename.lastIndexOf(".") + 1);
+        }
+        return "jpg";
     }
 }

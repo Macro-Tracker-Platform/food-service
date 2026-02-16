@@ -13,7 +13,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.never;
 import static org.mockito.BDDMockito.times;
 import static org.mockito.BDDMockito.verify;
-import static org.mockito.BDDMockito.willDoNothing;
+import static org.mockito.Mockito.atLeast;
 
 import com.mongodb.DuplicateKeyException;
 import com.olehprukhnytskyi.exception.ConflictException;
@@ -143,9 +143,10 @@ class FoodServiceTest {
         // Given
         foodRequestDto.setCode(null);
 
+        given(foodAssetService.uploadToTemp(any())).willReturn("temp/image-key.jpg");
         given(foodMapper.toModel(any())).willReturn(food);
         given(foodCodeGenerator.resolveCode(any())).willReturn("generated_code");
-        willDoNothing().given(foodAssetService).processAndUploadImage(any(), any());
+        given(foodAssetService.confirmImage(anyString(), any())).willReturn("final_path");
         given(foodRepository.save(any())).willReturn(food);
         given(foodMapper.toDto((Food) any())).willReturn(new FoodResponseDto());
 
@@ -155,8 +156,9 @@ class FoodServiceTest {
         // Then
         assertNotNull(result);
         verify(foodCodeGenerator).resolveCode(any());
-        verify(foodAssetService).processAndUploadImage(food, image);
-        verify(foodRepository).save(food);
+        verify(foodAssetService).uploadToTemp(image);
+        verify(foodAssetService).confirmImage(anyString(), any());
+        verify(foodRepository, atLeast(1)).save(food);
     }
 
     @Test
@@ -274,12 +276,9 @@ class FoodServiceTest {
     @Test
     @DisplayName("When food not found for patch, should throw NotFoundException")
     void patch_whenFoodNotFound_shouldThrowNotFoundException() {
-        // Given
-        given(foodRepository.findById("123")).willReturn(Optional.empty());
-
         // When & Then
         NotFoundException ex = assertThrows(NotFoundException.class,
-                () -> foodService.patch("123", new FoodPatchRequestDto()));
+                () -> foodService.patch("123", new FoodPatchRequestDto(), 1L));
 
         assertTrue(ex.getMessage().contains("Food not found"));
     }
@@ -299,12 +298,14 @@ class FoodServiceTest {
         FoodResponseDto expected = new FoodResponseDto();
         expected.setId(id);
 
-        given(foodRepository.findById(id)).willReturn(Optional.of(existing));
+        Long userId = 1L;
+
+        given(foodRepository.findByIdAndUserId(id, userId)).willReturn(Optional.of(existing));
         given(foodRepository.save(existing)).willReturn(saved);
         given(foodMapper.toDto(saved)).willReturn(expected);
 
         // When
-        FoodResponseDto result = foodService.patch(id, new FoodPatchRequestDto());
+        FoodResponseDto result = foodService.patch(id, new FoodPatchRequestDto(), userId);
 
         // Then
         assertEquals(id, result.getId());

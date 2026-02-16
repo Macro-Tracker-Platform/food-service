@@ -5,6 +5,7 @@ import com.olehprukhnytskyi.exception.ConflictException;
 import com.olehprukhnytskyi.exception.InternalServerException;
 import com.olehprukhnytskyi.exception.NotFoundException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
+import com.olehprukhnytskyi.exception.error.DBErrorCode;
 import com.olehprukhnytskyi.exception.error.FoodErrorCode;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dao.FoodSearchDao;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodListCacheWrapper;
@@ -27,6 +28,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.retry.support.RetryTemplate;
@@ -48,7 +50,6 @@ public class FoodService {
     private final ApplicationEventPublisher eventPublisher;
     private final RetryTemplate retryTemplate;
 
-    @Transactional
     @CachePut(value = CacheConstants.FOOD_DATA, key = "#result.id")
     public FoodResponseDto createFoodWithImages(FoodRequestDto dto,
                                                 MultipartFile image, Long userId) {
@@ -59,12 +60,26 @@ public class FoodService {
                 log.info("Returning existing food id={}", existingSameProduct.get().getId());
                 return foodMapper.toDto(existingSameProduct.get());
             }
+            String tempImageKey = null;
+            if (image != null && !image.isEmpty()) {
+                tempImageKey = foodAssetService.uploadToTemp(image);
+            }
             Food food = prepareNewFood(dto, userId);
-            foodAssetService.processAndUploadImage(food, image);
-            Food saved = retryTemplate.execute(context -> foodRepository.save(food));
-            eventPublisher.publishEvent(new FoodCreatedEvent(saved.getId(), userId));
-            log.info("Food created successfully userId={} foodId={}", userId, saved.getId());
-            return foodMapper.toDto(saved);
+            Food savedFood = retryTemplate.execute(context -> foodRepository.save(food));
+            if (tempImageKey != null) {
+                try {
+                    String finalUrl = foodAssetService
+                            .confirmImage(tempImageKey, savedFood.getId());
+                    savedFood.setImageUrl(finalUrl);
+                    savedFood = foodRepository.save(savedFood);
+                } catch (Exception e) {
+                    log.error("Failed to confirm image for foodId={}. Image left in temp.",
+                            savedFood.getId(), e);
+                }
+            }
+            eventPublisher.publishEvent(new FoodCreatedEvent(savedFood.getId(), userId));
+            log.info("Food created successfully userId={} foodId={}", userId, savedFood.getId());
+            return foodMapper.toDto(savedFood);
         } catch (ConflictException | BadRequestException e) {
             throw e;
         } catch (Exception e) {
@@ -115,15 +130,19 @@ public class FoodService {
     }
 
     @CachePut(value = CacheConstants.FOOD_DATA, key = "#id")
-    public FoodResponseDto patch(String id, FoodPatchRequestDto dto) {
+    public FoodResponseDto patch(String id, FoodPatchRequestDto dto, Long userId) {
         log.info("Updating food id={}", id);
         try {
-            Food existing = foodRepository.findById(id)
+            Food existing = foodRepository.findByIdAndUserId(id, userId)
                     .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
                             "Food not found with id: " + id));
             foodMapper.updateFoodFromPatchDto(dto, existing);
             Food saved = foodRepository.save(existing);
             return foodMapper.toDto(saved);
+        } catch (OptimisticLockingFailureException e) {
+            throw new ConflictException(DBErrorCode.DB_DUPLICATE_KEY,
+                    "The data has been changed by another user."
+                    + " Please refresh the page and try again");
         } catch (NotFoundException e) {
             throw e;
         } catch (Exception e) {

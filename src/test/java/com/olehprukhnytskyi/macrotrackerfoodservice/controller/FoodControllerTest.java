@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -444,9 +445,11 @@ class FoodControllerTest extends AbstractIntegrationTest {
         doNothing().when(imageService).validateImage(any());
         when(s3StorageService.uploadFile(any(), anyLong(), anyString(), anyString()))
                 .thenReturn("https://mock-s3/image.jpg");
+        when(imageService.buildImageKey(anyString(), anyInt(), anyString()))
+                .thenReturn("images/products/12345678/400.jpg");
+        when(s3StorageService.moveObject(anyString(), anyString()))
+                .thenReturn("https://mock-s3/final-image.jpg");
         when(geminiService.generateKeywords(any())).thenReturn(List.of());
-        when(imageService.resizeImage(any(), anyInt()))
-                .thenReturn(new ByteArrayInputStream(new byte[0]));
 
         // When
         MvcResult mvcResult = mockMvc.perform(
@@ -465,14 +468,15 @@ class FoodControllerTest extends AbstractIntegrationTest {
         // Then
         assertThat(response.getCode()).isEqualTo("12345678");
         assertThat(response.getProductName()).isEqualTo("Product name");
-        assertThat(response.getImageUrl()).isEqualTo("https://mock-s3/image.jpg");
+        assertThat(response.getImageUrl()).isEqualTo("https://mock-s3/final-image.jpg");
 
         Optional<Food> saved = foodRepository.findById("12345678");
         assertThat(saved).isPresent();
         assertThat(saved.get().getProductName()).isEqualTo("Product name");
 
-        verify(s3StorageService, times(1))
-                .uploadFile(any(), anyLong(), anyString(), anyString());
+        verify(s3StorageService).uploadFile(any(), anyLong(), startsWith("tmp/"), anyString());
+        verify(s3StorageService).moveObject(startsWith("tmp/"),
+                eq("images/products/12345678/400.jpg"));
     }
 
     @Test
@@ -529,6 +533,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
     void patch_whenSuccessful_shouldReturn200AndUpdatedDto() throws Exception {
         // Given
         String id = "11111111";
+        Long userId = 1L;
 
         FoodRequestDto requestDto = FoodRequestDto.builder()
                 .productName("New product name")
@@ -539,7 +544,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .id("11111111")
                 .code("11111111")
                 .productName("New product name")
-                .userId(1L)
+                .userId(userId)
                 .nutriments(NutrimentsDto.builder()
                         .calories(BigDecimal.valueOf(100))
                         .carbohydrates(BigDecimal.valueOf(25))
@@ -553,6 +558,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
         // When & Then
         mockMvc.perform(
                 patch("/api/foods/{id}", id)
+                        .header(CustomHeaders.X_USER_ID, userId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson)
                 )
