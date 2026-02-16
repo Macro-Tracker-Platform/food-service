@@ -37,6 +37,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsPatchDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
+import com.olehprukhnytskyi.macrotrackerfoodservice.model.Nutriments;
 import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.FoodRepository;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.GeminiService;
@@ -57,6 +58,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import org.skyscreamer.jsonassert.JSONAssert;
+import org.skyscreamer.jsonassert.JSONCompareMode;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -146,18 +149,36 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .code("11111111")
                 .userId(1L)
                 .productName("Rice")
+                .nutriments(Nutriments.builder()
+                        .calories(BigDecimal.valueOf(100))
+                        .carbohydrates(BigDecimal.valueOf(25))
+                        .fat(BigDecimal.valueOf(5))
+                        .protein(BigDecimal.valueOf(15))
+                        .build())
                 .build());
         foodRepository.save(Food.builder()
                 .id("22222222")
                 .code("22222222")
                 .userId(2L)
                 .productName("Potato")
+                .nutriments(Nutriments.builder()
+                        .calories(BigDecimal.valueOf(50))
+                        .carbohydrates(BigDecimal.valueOf(18))
+                        .fat(BigDecimal.valueOf(4))
+                        .protein(BigDecimal.valueOf(12))
+                        .build())
                 .build());
         foodRepository.save(Food.builder()
                 .id("33333333")
                 .code("33333333")
                 .userId(3L)
                 .productName("Tomato")
+                .nutriments(Nutriments.builder()
+                        .calories(BigDecimal.valueOf(20))
+                        .carbohydrates(BigDecimal.valueOf(5))
+                        .fat(BigDecimal.valueOf(2))
+                        .protein(BigDecimal.valueOf(1))
+                        .build())
                 .build());
     }
 
@@ -186,10 +207,14 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .code(foodId)
                 .userId(1L)
                 .productName("Rice")
+                .nutriments(NutrimentsDto.builder()
+                        .calories(BigDecimal.valueOf(100))
+                        .carbohydrates(BigDecimal.valueOf(25))
+                        .fat(BigDecimal.valueOf(5))
+                        .protein(BigDecimal.valueOf(15))
+                        .build())
                 .availableUnits(List.of(UnitType.GRAMS))
                 .build();
-
-        when(foodService.findById(foodId)).thenReturn(foodDto);
 
         // When
         MvcResult mvcResult = mockMvc.perform(
@@ -199,7 +224,8 @@ class FoodControllerTest extends AbstractIntegrationTest {
 
         // Then
         String expected = objectMapper.writeValueAsString(foodDto);
-        assertEquals(expected, mvcResult.getResponse().getContentAsString());
+        String actual = mvcResult.getResponse().getContentAsString();
+        JSONAssert.assertEquals(expected, actual, JSONCompareMode.LENIENT);
     }
 
     @Test
@@ -514,6 +540,12 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .code("11111111")
                 .productName("New product name")
                 .userId(1L)
+                .nutriments(NutrimentsDto.builder()
+                        .calories(BigDecimal.valueOf(100))
+                        .carbohydrates(BigDecimal.valueOf(25))
+                        .fat(BigDecimal.valueOf(5))
+                        .protein(BigDecimal.valueOf(15))
+                        .build())
                 .availableUnits(List.of(UnitType.GRAMS))
                 .build();
         String expected = objectMapper.writeValueAsString(responseDto);

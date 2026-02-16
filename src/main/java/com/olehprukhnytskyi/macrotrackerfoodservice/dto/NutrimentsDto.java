@@ -4,9 +4,15 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.validation.ValidUnitGroups;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMin;
 import java.math.BigDecimal;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 @ValidUnitGroups
 @Schema(description = "Nutrition information for food product")
 public class NutrimentsDto {

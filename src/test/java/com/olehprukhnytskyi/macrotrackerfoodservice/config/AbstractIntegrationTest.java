@@ -1,5 +1,6 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.config;
 
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,10 +17,14 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 public abstract class AbstractIntegrationTest {
     @Container
-    private static final GenericContainer<?> redisContainer = new GenericContainer<>("redis:8")
+    private static final GenericContainer<?> redisContainer = new GenericContainer<>(
+            "redis:7-alpine")
             .withExposedPorts(6379);
     @Container
-    private static final MongoDBContainer mongoContainer = new MongoDBContainer("mongo:6.0.5")
+    private static final MongoDBContainer mongoContainer = new MongoDBContainer(
+            "mongo:4.4.18")
+            .withCommand("--nojournal")
+            .withTmpFs(Map.of("/data/db", "rw"))
             .withReuse(true);
 
     @Autowired
@@ -37,7 +42,12 @@ public abstract class AbstractIntegrationTest {
 
     @BeforeEach
     void cleanExternalServices() {
-        redisTemplate.getConnectionFactory().getConnection().flushAll();
+        if (redisTemplate.getConnectionFactory() != null) {
+            redisTemplate.getConnectionFactory()
+                    .getConnection()
+                    .serverCommands()
+                    .flushDb();
+        }
 
         for (String name : mongoTemplate.getCollectionNames()) {
             mongoTemplate.dropCollection(name);

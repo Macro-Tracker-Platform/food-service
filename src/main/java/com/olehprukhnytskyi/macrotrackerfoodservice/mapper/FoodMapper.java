@@ -7,7 +7,6 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Nutriments;
-import com.olehprukhnytskyi.util.UnitType;
 import java.util.ArrayList;
 import java.util.List;
 import org.mapstruct.AfterMapping;
@@ -38,11 +37,13 @@ public interface FoodMapper {
             @Mapping(target = "keywords", ignore = true),
             @Mapping(target = "code", ignore = true),
             @Mapping(target = "imageUrl", ignore = true),
-            @Mapping(target = "userId", ignore = true)
+            @Mapping(target = "userId", ignore = true),
+            @Mapping(target = "nutriments.availableUnits", ignore = true)
     })
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateFoodFromPatchDto(FoodPatchRequestDto dto, @MappingTarget Food entity);
 
+    @Mapping(target = "availableUnits", ignore = true)
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateNutrimentsFromDto(NutrimentsDto dto, @MappingTarget Nutriments entity);
 
@@ -50,33 +51,8 @@ public interface FoodMapper {
     default void determineAvailableUnits(Food food,
                                          @MappingTarget
                                          FoodResponseDto.FoodResponseDtoBuilder builder) {
-        Nutriments n = food.getNutriments();
-        List<UnitType> units = new ArrayList<>();
-        if (n != null) {
-            if (isGramsDataComplete(n)) {
-                units.add(UnitType.GRAMS);
-            }
-            if (isPiecesDataComplete(n)) {
-                units.add(UnitType.PIECES);
-            }
+        if (food.getNutriments() != null) {
+            builder.availableUnits(new ArrayList<>(food.getNutriments().getAvailableUnits()));
         }
-        if (units.isEmpty()) {
-            units.add(UnitType.GRAMS);
-        }
-        builder.availableUnits(units);
-    }
-
-    default boolean isGramsDataComplete(Nutriments n) {
-        return n.getCalories() != null
-               && n.getProtein() != null
-               && n.getFat() != null
-               && n.getCarbohydrates() != null;
-    }
-
-    default boolean isPiecesDataComplete(Nutriments n) {
-        return n.getCaloriesPerPiece() != null
-               && n.getProteinPerPiece() != null
-               && n.getFatPerPiece() != null
-               && n.getCarbohydratesPerPiece() != null;
     }
 }

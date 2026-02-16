@@ -1,14 +1,21 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.model;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.olehprukhnytskyi.model.NutrientAware;
 import jakarta.validation.constraints.DecimalMin;
 import java.math.BigDecimal;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 import org.springframework.data.mongodb.core.mapping.Field;
 import org.springframework.data.mongodb.core.mapping.FieldType;
 
 @Data
-public class Nutriments {
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class Nutriments implements NutrientAware {
     @JsonAlias({"energy-kcal", "kcal", "calories"})
     @Field(name = "energy-kcal", targetType = FieldType.DOUBLE)
     private BigDecimal calories;
