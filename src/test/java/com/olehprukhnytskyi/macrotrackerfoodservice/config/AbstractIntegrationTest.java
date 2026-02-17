@@ -23,7 +23,6 @@ public abstract class AbstractIntegrationTest {
     @Container
     private static final MongoDBContainer mongoContainer = new MongoDBContainer(
             "mongo:4.4.18")
-            .withCommand("--nojournal")
             .withTmpFs(Map.of("/data/db", "rw"))
             .withReuse(true);
 
