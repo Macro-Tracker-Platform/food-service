@@ -16,19 +16,19 @@ import lombok.NoArgsConstructor;
 public class NutrimentsPatchDto {
     @Schema(description = "Calories per 100g", example = "170.0", minimum = "0.0")
     @DecimalMin(value = "0.0")
-    private BigDecimal calories;
+    private BigDecimal caloriesPer100;
 
     @Schema(description = "Fat per 100g (g)", example = "4.0", minimum = "0.0")
     @DecimalMin(value = "0.0")
-    private BigDecimal fat;
+    private BigDecimal fatPer100;
 
     @Schema(description = "Protein per 100g (g)", example = "32.0", minimum = "0.0")
     @DecimalMin(value = "0.0")
-    private BigDecimal protein;
+    private BigDecimal proteinPer100;
 
     @Schema(description = "Carbohydrates per 100g (g)", example = "1.5", minimum = "0.0")
     @DecimalMin(value = "0.0")
-    private BigDecimal carbohydrates;
+    private BigDecimal carbohydratesPer100;
 
     @Schema(description = "Calories per piece", example = "125.0", minimum = "0.0")
     @DecimalMin(value = "0.0")

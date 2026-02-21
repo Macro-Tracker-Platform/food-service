@@ -576,7 +576,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
         String id = "11111111";
 
         NutrimentsPatchDto nutrimentsPatchDto = NutrimentsPatchDto.builder()
-                .carbohydrates(BigDecimal.valueOf(-100))
+                .carbohydratesPer100(BigDecimal.valueOf(-100))
                 .build();
 
         FoodPatchRequestDto requestDto = FoodPatchRequestDto.builder()
@@ -594,7 +594,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .traceId("N/A")
                 .code(errorCode.getCode())
                 .invalidParams(List.of(new ProblemDetails.InvalidParam(
-                        "nutriments.carbohydrates",
+                        "nutriments.carbohydratesPer100",
                         "must be greater than or equal to 0.0"
                 )))
                 .build();
