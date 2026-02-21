@@ -21,7 +21,7 @@ public class Nutriments implements NutrientAware {
     private BigDecimal caloriesPer100;
 
     @JsonAlias({"fat"})
-    @Field(targetType = FieldType.DOUBLE)
+    @Field(name = "fat", targetType = FieldType.DOUBLE)
     private BigDecimal fatPer100;
 
     @JsonAlias({"protein", "proteins"})
@@ -29,7 +29,7 @@ public class Nutriments implements NutrientAware {
     private BigDecimal proteinPer100;
 
     @JsonAlias({"carbohydrates"})
-    @Field(targetType = FieldType.DOUBLE)
+    @Field(name = "carbohydrates", targetType = FieldType.DOUBLE)
     private BigDecimal carbohydratesPer100;
 
     @JsonAlias({"energy-kcal_piece", "caloriesPerPiece"})
