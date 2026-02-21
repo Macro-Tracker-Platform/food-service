@@ -18,17 +18,19 @@ import org.springframework.data.mongodb.core.mapping.FieldType;
 public class Nutriments implements NutrientAware {
     @JsonAlias({"energy-kcal", "kcal", "calories"})
     @Field(name = "energy-kcal", targetType = FieldType.DOUBLE)
-    private BigDecimal calories;
+    private BigDecimal caloriesPer100;
 
+    @JsonAlias({"fat"})
     @Field(targetType = FieldType.DOUBLE)
-    private BigDecimal fat;
+    private BigDecimal fatPer100;
 
     @JsonAlias({"protein", "proteins"})
     @Field(name = "proteins", targetType = FieldType.DOUBLE)
-    private BigDecimal protein;
+    private BigDecimal proteinPer100;
 
+    @JsonAlias({"carbohydrates"})
     @Field(targetType = FieldType.DOUBLE)
-    private BigDecimal carbohydrates;
+    private BigDecimal carbohydratesPer100;
 
     @JsonAlias({"energy-kcal_piece", "caloriesPerPiece"})
     @Field(name = "energy-kcal_piece", targetType = FieldType.DOUBLE)
@@ -46,4 +48,24 @@ public class Nutriments implements NutrientAware {
     @JsonAlias({"carbohydrates_piece", "carbohydratesPerPiece"})
     @Field(name = "carbohydrates_piece", targetType = FieldType.DOUBLE)
     private BigDecimal carbohydratesPerPiece;
+
+    @Override
+    public BigDecimal getCalories() {
+        return caloriesPer100;
+    }
+
+    @Override
+    public BigDecimal getProtein() {
+        return proteinPer100;
+    }
+
+    @Override
+    public BigDecimal getFat() {
+        return fatPer100;
+    }
+
+    @Override
+    public BigDecimal getCarbohydrates() {
+        return carbohydratesPer100;
+    }
 }

@@ -118,10 +118,10 @@ class FoodControllerTest extends AbstractIntegrationTest {
         foodRepository.deleteAll();
 
         NutrimentsDto nutrimentsDto = new NutrimentsDto();
-        nutrimentsDto.setCalories(BigDecimal.valueOf(100));
-        nutrimentsDto.setCarbohydrates(BigDecimal.valueOf(100));
-        nutrimentsDto.setFat(BigDecimal.valueOf(100));
-        nutrimentsDto.setProtein(BigDecimal.valueOf(100));
+        nutrimentsDto.setCaloriesPer100(BigDecimal.valueOf(100));
+        nutrimentsDto.setCarbohydratesPer100(BigDecimal.valueOf(100));
+        nutrimentsDto.setFatPer100(BigDecimal.valueOf(100));
+        nutrimentsDto.setProteinPer100(BigDecimal.valueOf(100));
 
         foodRequestDto = new FoodRequestDto();
         foodRequestDto.setCode("12345678");
@@ -154,10 +154,10 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .userId(1L)
                 .productName("Rice")
                 .nutriments(Nutriments.builder()
-                        .calories(BigDecimal.valueOf(100))
-                        .carbohydrates(BigDecimal.valueOf(25))
-                        .fat(BigDecimal.valueOf(5))
-                        .protein(BigDecimal.valueOf(15))
+                        .caloriesPer100(BigDecimal.valueOf(100))
+                        .carbohydratesPer100(BigDecimal.valueOf(25))
+                        .fatPer100(BigDecimal.valueOf(5))
+                        .proteinPer100(BigDecimal.valueOf(15))
                         .build())
                 .build());
         foodRepository.save(Food.builder()
@@ -166,10 +166,10 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .userId(2L)
                 .productName("Potato")
                 .nutriments(Nutriments.builder()
-                        .calories(BigDecimal.valueOf(50))
-                        .carbohydrates(BigDecimal.valueOf(18))
-                        .fat(BigDecimal.valueOf(4))
-                        .protein(BigDecimal.valueOf(12))
+                        .caloriesPer100(BigDecimal.valueOf(50))
+                        .carbohydratesPer100(BigDecimal.valueOf(18))
+                        .fatPer100(BigDecimal.valueOf(4))
+                        .proteinPer100(BigDecimal.valueOf(12))
                         .build())
                 .build());
         foodRepository.save(Food.builder()
@@ -178,10 +178,10 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .userId(3L)
                 .productName("Tomato")
                 .nutriments(Nutriments.builder()
-                        .calories(BigDecimal.valueOf(20))
-                        .carbohydrates(BigDecimal.valueOf(5))
-                        .fat(BigDecimal.valueOf(2))
-                        .protein(BigDecimal.valueOf(1))
+                        .caloriesPer100(BigDecimal.valueOf(20))
+                        .carbohydratesPer100(BigDecimal.valueOf(5))
+                        .fatPer100(BigDecimal.valueOf(2))
+                        .proteinPer100(BigDecimal.valueOf(1))
                         .build())
                 .build());
     }
@@ -212,10 +212,10 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .userId(1L)
                 .productName("Rice")
                 .nutriments(NutrimentsDto.builder()
-                        .calories(BigDecimal.valueOf(100))
-                        .carbohydrates(BigDecimal.valueOf(25))
-                        .fat(BigDecimal.valueOf(5))
-                        .protein(BigDecimal.valueOf(15))
+                        .caloriesPer100(BigDecimal.valueOf(100))
+                        .carbohydratesPer100(BigDecimal.valueOf(25))
+                        .fatPer100(BigDecimal.valueOf(5))
+                        .proteinPer100(BigDecimal.valueOf(15))
                         .build())
                 .availableUnits(List.of(UnitType.GRAMS))
                 .build();
@@ -549,10 +549,10 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .productName("New product name")
                 .userId(userId)
                 .nutriments(NutrimentsDto.builder()
-                        .calories(BigDecimal.valueOf(100))
-                        .carbohydrates(BigDecimal.valueOf(25))
-                        .fat(BigDecimal.valueOf(5))
-                        .protein(BigDecimal.valueOf(15))
+                        .caloriesPer100(BigDecimal.valueOf(100))
+                        .carbohydratesPer100(BigDecimal.valueOf(25))
+                        .fatPer100(BigDecimal.valueOf(5))
+                        .proteinPer100(BigDecimal.valueOf(15))
                         .build())
                 .availableUnits(List.of(UnitType.GRAMS))
                 .build();

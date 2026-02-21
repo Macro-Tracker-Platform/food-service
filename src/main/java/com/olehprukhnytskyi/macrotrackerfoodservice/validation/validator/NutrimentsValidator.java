@@ -14,10 +14,10 @@ public class NutrimentsValidator implements
         if (dto == null) {
             return true;
         }
-        boolean hasAllGrams = allNotNull(dto.getCalories(), dto.getFat(),
-                dto.getProtein(), dto.getCarbohydrates());
-        boolean hasNoGrams = allNull(dto.getCalories(), dto.getFat(),
-                dto.getProtein(), dto.getCarbohydrates());
+        boolean hasAllGrams = allNotNull(dto.getCaloriesPer100(), dto.getFatPer100(),
+                dto.getProteinPer100(), dto.getCarbohydratesPer100());
+        boolean hasNoGrams = allNull(dto.getCaloriesPer100(), dto.getFatPer100(),
+                dto.getProteinPer100(), dto.getCarbohydratesPer100());
         if (!hasAllGrams && !hasNoGrams) {
             addConstraintViolation(context,
                     "Nutrition data per 100g must be either fully completed (4 fields) or empty");

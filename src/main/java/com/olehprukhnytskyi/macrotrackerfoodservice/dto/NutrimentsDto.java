@@ -18,33 +18,33 @@ import lombok.NoArgsConstructor;
 public class NutrimentsDto {
     @Schema(description = "Calories per 100g", example = "165.0", minimum = "0.0")
     @DecimalMin(value = "0.0")
-    private BigDecimal calories;
+    private BigDecimal caloriesPer100;
 
     @Schema(description = "Fat per 100g (g)", example = "3.6", minimum = "0.0")
     @DecimalMin(value = "0.0")
-    private BigDecimal fat;
+    private BigDecimal fatPer100;
 
     @Schema(description = "Protein per 100g (g)", example = "31.0", minimum = "0.0")
     @DecimalMin(value = "0.0")
-    private BigDecimal protein;
+    private BigDecimal proteinPer100;
 
     @Schema(description = "Carbohydrates per 100g (g)", example = "0.0", minimum = "0.0")
     @DecimalMin(value = "0.0")
-    private BigDecimal carbohydrates;
+    private BigDecimal carbohydratesPer100;
 
     @Schema(description = "Calories per piece", example = "120.5", minimum = "0.0")
     @DecimalMin(value = "0.0")
     private BigDecimal caloriesPerPiece;
 
-    @Schema(description = "Fat per piece (g)", example = "2.1", minimum = "0.0")
+    @Schema(description = "Fat per piece", example = "2.1", minimum = "0.0")
     @DecimalMin(value = "0.0")
     private BigDecimal fatPerPiece;
 
-    @Schema(description = "Protein per piece (g)", example = "22.5", minimum = "0.0")
+    @Schema(description = "Protein per piece", example = "22.5", minimum = "0.0")
     @DecimalMin(value = "0.0")
     private BigDecimal proteinPerPiece;
 
-    @Schema(description = "Carbohydrates per piece (g)", example = "0.0", minimum = "0.0")
+    @Schema(description = "Carbohydrates per piece", example = "0.0", minimum = "0.0")
     @DecimalMin(value = "0.0")
     private BigDecimal carbohydratesPerPiece;
 }

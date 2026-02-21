@@ -36,10 +36,10 @@ class GeminiServiceTest {
     @BeforeEach
     void setup() {
         Nutriments nutriments = new Nutriments();
-        nutriments.setCalories(BigDecimal.valueOf(200.0));
-        nutriments.setFat(BigDecimal.valueOf(8.0));
-        nutriments.setProtein(BigDecimal.valueOf(10.0));
-        nutriments.setCarbohydrates(BigDecimal.valueOf(15.0));
+        nutriments.setCaloriesPer100(BigDecimal.valueOf(200.0));
+        nutriments.setFatPer100(BigDecimal.valueOf(8.0));
+        nutriments.setProteinPer100(BigDecimal.valueOf(10.0));
+        nutriments.setCarbohydratesPer100(BigDecimal.valueOf(15.0));
 
         food = new Food();
         food.setProductName("Protein Bar");

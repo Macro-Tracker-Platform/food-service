@@ -89,15 +89,15 @@ class FoodServiceTest {
     @BeforeEach
     void setUp() {
         NutrimentsDto nutrimentsDto = new NutrimentsDto();
-        nutrimentsDto.setCalories(BigDecimal.ONE);
-        nutrimentsDto.setCarbohydrates(BigDecimal.ONE);
-        nutrimentsDto.setFat(BigDecimal.ONE);
-        nutrimentsDto.setProtein(BigDecimal.ONE);
+        nutrimentsDto.setCaloriesPer100(BigDecimal.ONE);
+        nutrimentsDto.setCarbohydratesPer100(BigDecimal.ONE);
+        nutrimentsDto.setFatPer100(BigDecimal.ONE);
+        nutrimentsDto.setProteinPer100(BigDecimal.ONE);
 
-        nutrimentsDto.setCalories(BigDecimal.ONE);
-        nutrimentsDto.setCarbohydrates(BigDecimal.ONE);
-        nutrimentsDto.setFat(BigDecimal.ONE);
-        nutrimentsDto.setProtein(BigDecimal.ONE);
+        nutrimentsDto.setCaloriesPer100(BigDecimal.ONE);
+        nutrimentsDto.setCarbohydratesPer100(BigDecimal.ONE);
+        nutrimentsDto.setFatPer100(BigDecimal.ONE);
+        nutrimentsDto.setProteinPer100(BigDecimal.ONE);
 
         foodRequestDto = new FoodRequestDto();
         foodRequestDto.setCode("code");
