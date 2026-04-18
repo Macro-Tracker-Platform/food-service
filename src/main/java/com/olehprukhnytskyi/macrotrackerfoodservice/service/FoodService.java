@@ -20,6 +20,8 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.FoodReposit
 import com.olehprukhnytskyi.macrotrackerfoodservice.util.CacheConstants;
 import com.olehprukhnytskyi.model.OutboxEvent;
 import com.olehprukhnytskyi.repository.jpa.OutboxRepository;
+import com.olehprukhnytskyi.util.ModerationStatus;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -90,6 +92,10 @@ public class FoodService {
     }
 
     public List<FoodResponseDto> findAllByUserId(Long userId, int offset, int limit) {
+        if (offset % limit != 0) {
+            throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
+                    "Offset must be a multiple of limit");
+        }
         Pageable pageable = PageRequest.of(offset / limit, limit);
         return foodRepository.findAllByUserId(userId, pageable)
                 .stream()
@@ -103,9 +109,13 @@ public class FoodService {
                     + ".trim().toLowerCase() + '-' + #offset + '-' + #limit).getBytes())",
             unless = "#result == null || #result.items.isEmpty()"
     )
-    public FoodListCacheWrapper findByQuery(String query, int offset, int limit) {
+    public FoodListCacheWrapper findByQuery(String query, Long userId, int offset, int limit) {
         log.debug("Searching foods query='{}' offset={} limit={}", query, offset, limit);
-        List<Food> foods = foodSearchDao.search(query, offset, limit);
+        List<String> excludedIds = Collections.emptyList();
+        if (userId != null) {
+            excludedIds = foodRepository.findOverriddenOriginalIdsByUserId(userId);
+        }
+        List<Food> foods = foodSearchDao.search(query, userId, excludedIds, offset, limit);
         return new FoodListCacheWrapper(foodMapper.toDto(foods));
     }
 
@@ -164,8 +174,86 @@ public class FoodService {
         log.debug("Food deleted successfully id={} userId={}", id, userId);
     }
 
+    @CacheEvict(value = CacheConstants.FOOD_DATA, key = "#id")
+    @Transactional
+    public void deleteById(String id) {
+        log.info("Deleting food id={}", id);
+        foodRepository.deleteById(id);
+        outboxRepository.save(OutboxEvent.builder()
+                .aggregateType("FOOD")
+                .aggregateId(id)
+                .eventType("FOOD_DELETED")
+                .build());
+        log.debug("Food deleted successfully id={}", id);
+    }
+
     public List<FoodResponseDto> findAllByIds(List<String> foodIds) {
         return foodRepository.findAllById(foodIds).stream()
+                .map(foodMapper::toDto)
+                .toList();
+    }
+
+    @Transactional
+    public FoodResponseDto customizeAndSubmitForReview(String originalId,
+                                                       FoodPatchRequestDto patchDto, Long userId) {
+        log.info("User {} is customizing food id={}", userId, originalId);
+        Food original = foodRepository.findById(originalId)
+                .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
+                        "Food not found with id: " + originalId));
+        Food customizedFood = foodMapper.createCustomizedCopy(original, userId);
+        foodMapper.updateFoodFromPatchDto(patchDto, customizedFood);
+        String newCode = foodCodeGenerator.resolveCode(new FoodRequestDto());
+        customizedFood.setId(newCode);
+        customizedFood.setCode(newCode);
+        Food saved = foodRepository.save(customizedFood);
+        return foodMapper.toDto(saved);
+    }
+
+    @Transactional
+    @CacheEvict(value = CacheConstants.FOOD_DATA, key = "#p0", condition = "#result != null")
+    public FoodResponseDto approveModeration(String pendingFoodId) {
+        log.info("Admin is approving food id={}", pendingFoodId);
+        Food pendingFood = foodRepository.findById(pendingFoodId)
+                .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
+                        "Food not found with id: " + pendingFoodId));
+        if (pendingFood.getOriginalFoodId() != null) {
+            Food original = foodRepository.findById(pendingFood.getOriginalFoodId())
+                    .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
+                            "Original food not found"));
+            foodMapper.mergePendingIntoOriginal(pendingFood, original);
+            original.setVerifiedByAdmin(true);
+            pendingFood.setModerationStatus(ModerationStatus.APPROVED);
+            foodRepository.save(original);
+            foodRepository.delete(pendingFood);
+            return foodMapper.toDto(original);
+        } else {
+            pendingFood.setVerifiedByAdmin(true);
+            pendingFood.setModerationStatus(ModerationStatus.APPROVED);
+            return foodMapper.toDto(foodRepository.save(pendingFood));
+        }
+    }
+
+    @Transactional
+    public FoodResponseDto rejectModeration(String pendingFoodId) {
+        log.info("Admin is rejecting food id={}", pendingFoodId);
+        Food pendingFood = foodRepository.findById(pendingFoodId)
+                .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
+                        "Food not found with id: " + pendingFoodId));
+        pendingFood.setModerationStatus(ModerationStatus.REJECTED);
+        Food saved = foodRepository.save(pendingFood);
+        return foodMapper.toDto(saved);
+    }
+
+    public List<FoodResponseDto> getAllFoodsForAdmin(ModerationStatus status,
+                                                     int offset, int limit) {
+        if (offset % limit != 0) {
+            throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
+                    "Offset must be a multiple of limit");
+        }
+        log.info("Fetching all foods for admin. Offset={}, Limit={}", offset, limit);
+        Pageable pageable = PageRequest.of(offset / limit, limit);
+        return foodRepository.findAllByModerationStatus(status, pageable)
+                .stream()
                 .map(foodMapper::toDto)
                 .toList();
     }
@@ -176,6 +264,8 @@ public class FoodService {
         food.setUserId(userId);
         food.setId(code);
         food.setCode(code);
+        food.setModerationStatus(ModerationStatus.PENDING_REVIEW);
+        food.setVerifiedByAdmin(false);
         return food;
     }
 

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.anyList;
 import static org.mockito.BDDMockito.anyString;
 import static org.mockito.BDDMockito.eq;
@@ -14,6 +15,8 @@ import static org.mockito.BDDMockito.never;
 import static org.mockito.BDDMockito.times;
 import static org.mockito.BDDMockito.verify;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 
 import com.mongodb.DuplicateKeyException;
 import com.olehprukhnytskyi.exception.ConflictException;
@@ -37,6 +40,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.ImageService;
 import com.olehprukhnytskyi.model.OutboxEvent;
 import com.olehprukhnytskyi.repository.jpa.OutboxRepository;
+import com.olehprukhnytskyi.util.ModerationStatus;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -49,6 +53,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.retry.support.RetryTemplate;
@@ -219,11 +224,12 @@ class FoodServiceTest {
         FoodResponseDto dto = new FoodResponseDto();
         dto.setId("123");
 
-        given(foodSearchDao.search(anyString(), anyInt(), anyInt())).willReturn(List.of(food));
+        given(foodSearchDao.search(anyString(), anyLong(), any(), anyInt(), anyInt()))
+                .willReturn(List.of(food));
         given(foodMapper.toDto(anyList())).willReturn(List.of(dto));
 
         // When
-        FoodListCacheWrapper result = foodService.findByQuery("apple", 0, 10);
+        FoodListCacheWrapper result = foodService.findByQuery("apple", 1L, 0, 10);
 
         // Then
         assertNotNull(result.getItems());
@@ -235,13 +241,13 @@ class FoodServiceTest {
     @DisplayName("When DAO throws runtime exception, Service should propagate or wrap it")
     void findByQuery_whenDaoThrowsException_shouldThrowException() {
         // Given
-        given(foodSearchDao.search(anyString(), anyInt(), anyInt()))
+        given(foodSearchDao.search(anyString(), anyLong(), any(), anyInt(), anyInt()))
                 .willThrow(new InternalServerException(CommonErrorCode.BAD_REQUEST,
                         "Elastic Error"));
 
         // When & Then
         assertThrows(InternalServerException.class,
-                () -> foodService.findByQuery("milk", 0, 10));
+                () -> foodService.findByQuery("milk", 1L, 0, 10));
     }
 
     @Test
@@ -325,5 +331,145 @@ class FoodServiceTest {
         // Then
         verify(foodRepository).deleteByIdAndUserId(id, userId);
         verify(outboxRepository).save(any(OutboxEvent.class));
+    }
+
+    @Test
+    @DisplayName("When customize food, should create copy, apply patch, save and return DTO")
+    void customizeAndSubmitForReview_shouldCreateCopyAndSave() {
+        // Given
+        String originalId = "orig123";
+        Long userId = 1L;
+        Food original = new Food();
+        original.setId(originalId);
+
+        Food customized = new Food();
+        Food saved = new Food();
+        FoodResponseDto expectedDto = new FoodResponseDto();
+        FoodPatchRequestDto patchDto = new FoodPatchRequestDto();
+
+        given(foodRepository.findById(originalId)).willReturn(Optional.of(original));
+        given(foodMapper.createCustomizedCopy(original, userId)).willReturn(customized);
+        doNothing().when(foodMapper).updateFoodFromPatchDto(any(), any());
+        given(foodCodeGenerator.resolveCode(any())).willReturn("newCode123");
+        given(foodRepository.save(customized)).willReturn(saved);
+        given(foodMapper.toDto(saved)).willReturn(expectedDto);
+
+        // When
+        FoodResponseDto result = foodService
+                .customizeAndSubmitForReview(originalId, patchDto, userId);
+
+        // Then
+        assertNotNull(result);
+        assertEquals(expectedDto, result);
+        assertEquals("newCode123", customized.getId());
+        assertEquals("newCode123", customized.getCode());
+        verify(foodRepository).save(customized);
+    }
+
+    @Test
+    @DisplayName("When approve moderation for a copy, should update original and DELETE copy")
+    void approveModeration_whenCopy_shouldUpdateOriginalAndDeleteCopy() {
+        // Given
+        String pendingId = "pending123";
+        String originalId = "orig123";
+
+        Food pending = new Food();
+        pending.setId(pendingId);
+        pending.setOriginalFoodId(originalId);
+        pending.setProductName("Updated Name");
+
+        Food original = new Food();
+        original.setId(originalId);
+        original.setProductName("Old Name");
+
+        FoodResponseDto expectedDto = new FoodResponseDto();
+
+        given(foodRepository.findById(pendingId)).willReturn(Optional.of(pending));
+        given(foodRepository.findById(originalId)).willReturn(Optional.of(original));
+        given(foodRepository.save(original)).willReturn(original);
+        given(foodMapper.toDto(original)).willReturn(expectedDto);
+        doAnswer(invocation -> {
+            Food source = invocation.getArgument(0);
+            Food target = invocation.getArgument(1);
+            target.setProductName(source.getProductName());
+            return null;
+        }).when(foodMapper).mergePendingIntoOriginal(pending, original);
+
+        // When
+        FoodResponseDto result = foodService.approveModeration(pendingId);
+
+        // Then
+        assertEquals(expectedDto, result);
+        assertTrue(original.isVerifiedByAdmin());
+        assertEquals("Updated Name", original.getProductName());
+        verify(foodRepository, times(1)).save(original);
+    }
+
+    @Test
+    @DisplayName("When approve moderation for a new food, should update status and save")
+    void approveModeration_whenNewFood_shouldUpdateAndSave() {
+        // Given
+        String pendingId = "pending123";
+        Food pending = new Food();
+        pending.setId(pendingId);
+        pending.setOriginalFoodId(null);
+
+        Food saved = new Food();
+        FoodResponseDto expectedDto = new FoodResponseDto();
+
+        given(foodRepository.findById(pendingId)).willReturn(Optional.of(pending));
+        given(foodRepository.save(pending)).willReturn(saved);
+        given(foodMapper.toDto(saved)).willReturn(expectedDto);
+
+        // When
+        FoodResponseDto result = foodService.approveModeration(pendingId);
+
+        // Then
+        assertEquals(expectedDto, result);
+        assertTrue(pending.isVerifiedByAdmin());
+        verify(foodRepository, times(1)).save(pending);
+    }
+
+    @Test
+    @DisplayName("When reject moderation, should update status to REJECTED")
+    void rejectModeration_shouldUpdateStatus() {
+        // Given
+        String pendingId = "pending123";
+        Food pending = new Food();
+        pending.setId(pendingId);
+
+        Food saved = new Food();
+        FoodResponseDto expectedDto = new FoodResponseDto();
+
+        given(foodRepository.findById(pendingId)).willReturn(Optional.of(pending));
+        given(foodRepository.save(pending)).willReturn(saved);
+        given(foodMapper.toDto(saved)).willReturn(expectedDto);
+
+        // When
+        FoodResponseDto result = foodService.rejectModeration(pendingId);
+
+        // Then
+        assertEquals(expectedDto, result);
+        verify(foodRepository).save(pending);
+    }
+
+    @Test
+    @DisplayName("When get pending review foods, should return mapped list")
+    void getPendingReviewFoods_shouldReturnList() {
+        // Given
+        Food pendingFood = new Food();
+        FoodResponseDto dto = new FoodResponseDto();
+
+        given(foodRepository.findAllByModerationStatus(any(), any(Pageable.class)))
+                .willReturn(new org.springframework.data.domain.PageImpl<>(List.of(pendingFood)));
+        given(foodMapper.toDto(pendingFood)).willReturn(dto);
+
+        // When
+        List<FoodResponseDto> result = foodService
+                .getAllFoodsForAdmin(ModerationStatus.PENDING_REVIEW, 0, 10);
+
+        // Then
+        assertEquals(1, result.size());
+        assertEquals(dto, result.get(0));
     }
 }

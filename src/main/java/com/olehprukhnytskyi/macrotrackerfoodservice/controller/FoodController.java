@@ -106,10 +106,12 @@ public class FoodController {
     @GetMapping
     public ResponseEntity<PagedResponse<FoodResponseDto>> findByQuery(
             @RequestParam String query,
+            @RequestHeader(value = CustomHeaders.X_USER_ID) Long userId,
             @RequestParam(defaultValue = "0") @Min(0) int offset,
             @RequestParam(defaultValue = "25") @Min(1) int limit) {
         log.info("Searching foods query='{}' offset={} limit={}", query, offset, limit);
-        List<FoodResponseDto> foods = foodService.findByQuery(query, offset, limit).getItems();
+        List<FoodResponseDto> foods = foodService
+                .findByQuery(query, userId, offset, limit).getItems();
         Pagination pagination = new Pagination(offset, limit, foods.size());
         return ResponseEntity
                 .status(foods.isEmpty() ? HttpStatus.NO_CONTENT : HttpStatus.OK)
@@ -175,5 +177,21 @@ public class FoodController {
         foodService.deleteByIdAndUserId(id, userId);
         log.debug("Food deleted successfully id={} userId={}", id, userId);
         return ResponseEntity.noContent().build();
+    }
+
+    @Operation(
+            summary = "Customize food",
+            description = """
+                    Create a custom copy of an existing\s
+                    food product and submit for moderation"""
+    )
+    @PostMapping("/{id}/customize")
+    public ResponseEntity<FoodResponseDto> customizeFood(
+            @PathVariable String id,
+            @RequestBody @Valid FoodPatchRequestDto dto,
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId) {
+        log.info("Customizing food id={} by userId={}", id, userId);
+        FoodResponseDto customFood = foodService.customizeAndSubmitForReview(id, dto, userId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(customFood);
     }
 }

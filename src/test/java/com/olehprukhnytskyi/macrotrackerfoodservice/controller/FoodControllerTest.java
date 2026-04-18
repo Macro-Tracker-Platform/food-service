@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -47,6 +49,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.service.S3StorageService;
 import com.olehprukhnytskyi.model.OutboxEvent;
 import com.olehprukhnytskyi.repository.jpa.OutboxRepository;
 import com.olehprukhnytskyi.util.CustomHeaders;
+import com.olehprukhnytskyi.util.ModerationStatus;
 import com.olehprukhnytskyi.util.UnitType;
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
@@ -138,6 +141,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
         foodResponseDto.setImageUrl("https://image.url");
         foodResponseDto.setNutriments(nutrimentsDto);
         foodResponseDto.setAvailableUnits(List.of(UnitType.GRAMS));
+        foodResponseDto.setModerationStatus(ModerationStatus.NONE.name());
 
         food = Food.builder()
                 .productName("Product name")
@@ -211,6 +215,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .code(foodId)
                 .userId(1L)
                 .productName("Rice")
+                .moderationStatus(ModerationStatus.NONE.name())
                 .nutriments(NutrimentsDto.builder()
                         .caloriesPer100(BigDecimal.valueOf(100))
                         .carbohydratesPer100(BigDecimal.valueOf(25))
@@ -255,6 +260,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                         .param("query", "apple")
                         .param("offset", "0")
                         .param("limit", "10")
+                        .header(CustomHeaders.X_USER_ID, 1L)
                 )
                 .andExpect(status().isOk())
                 .andReturn();
@@ -287,6 +293,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                         .param("query", "apple")
                         .param("offset", "0")
                         .param("limit", "10")
+                        .header(CustomHeaders.X_USER_ID, 1L)
                 )
                 .andExpect(status().isNoContent())
                 .andReturn();
@@ -322,6 +329,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                         .param("query", "apple")
                         .param("offset", "-10")
                         .param("limit", "10")
+                        .header(CustomHeaders.X_USER_ID, 1L)
                 )
                 .andExpect(status().isBadRequest())
                 .andReturn();
@@ -357,6 +365,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                         .param("query", "apple")
                         .param("offset", "0")
                         .param("limit", "-10")
+                        .header(CustomHeaders.X_USER_ID, 1L)
                 )
                 .andExpect(status().isBadRequest())
                 .andReturn();
@@ -548,6 +557,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .code("11111111")
                 .productName("New product name")
                 .userId(userId)
+                .moderationStatus(ModerationStatus.NONE.name())
                 .nutriments(NutrimentsDto.builder()
                         .caloriesPer100(BigDecimal.valueOf(100))
                         .carbohydratesPer100(BigDecimal.valueOf(25))
@@ -630,5 +640,104 @@ class FoodControllerTest extends AbstractIntegrationTest {
         // Then
         verify(outboxRepository, times(1)).save(any(OutboxEvent.class));
         assertThat(foodRepository.findById(foodId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("When customize food is successful, should return 201 Created")
+    void customizeFood_whenSuccessful_shouldReturn201() throws Exception {
+        // Given
+        String originalId = "11111111";
+        Long userId = 1L;
+        FoodPatchRequestDto patchDto = FoodPatchRequestDto.builder()
+                .productName("Customized Apple")
+                .build();
+
+        FoodResponseDto responseDto = FoodResponseDto.builder()
+                .id("new-custom-id")
+                .productName("Customized Apple")
+                .build();
+
+        doReturn(responseDto).when(foodService).customizeAndSubmitForReview(eq(originalId),
+                any(FoodPatchRequestDto.class), eq(userId));
+
+        // When & Then
+        mockMvc.perform(
+                        post("/api/foods/{id}/customize", originalId)
+                                .header(CustomHeaders.X_USER_ID, userId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchDto))
+                )
+                .andExpect(status().isCreated())
+                .andExpect(content().json(objectMapper.writeValueAsString(responseDto)));
+    }
+
+    @Test
+    @DisplayName("When admin approves food, should return 200 OK")
+    void approveFoodChanges_whenAdmin_shouldReturn200() throws Exception {
+        // Given
+        String pendingId = "22222222";
+        FoodResponseDto responseDto = FoodResponseDto.builder().id("22222222").build();
+
+        doReturn(responseDto).when(foodService).approveModeration(eq(pendingId));
+
+        // When & Then
+        mockMvc.perform(
+                        post("/api/foods/admin/{customizedId}/approve", pendingId)
+                                .header(CustomHeaders.X_USER_ROLES, "USER,ADMIN")
+                )
+                .andExpect(status().isOk())
+                .andExpect(content().json(objectMapper.writeValueAsString(responseDto)));
+    }
+
+    @Test
+    @DisplayName("When user tries to approve food, should return 400 Bad Request")
+    void approveFoodChanges_whenUser_shouldReturn400() throws Exception {
+        // When & Then
+        mockMvc.perform(
+                        post("/api/foods/admin/{customizedId}/approve", "some-id")
+                                .header(CustomHeaders.X_USER_ROLES, "USER")
+                )
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("When admin rejects food, should return 200 OK")
+    void rejectFoodChanges_whenAdmin_shouldReturn200() throws Exception {
+        // Given
+        String pendingId = "22222222";
+        FoodResponseDto responseDto = FoodResponseDto.builder().id(pendingId).build();
+
+        doReturn(responseDto).when(foodService).rejectModeration(eq(pendingId));
+
+        // When & Then
+        mockMvc.perform(
+                        post("/api/foods/admin/{customizedId}/reject", pendingId)
+                                .header(CustomHeaders.X_USER_ROLES, "ADMIN")
+                )
+                .andExpect(status().isOk())
+                .andExpect(content().json(objectMapper.writeValueAsString(responseDto)));
+    }
+
+    @Test
+    @DisplayName("When get pending review foods as admin, should return 200 OK")
+    void getAllFoodsForAdmin_whenAdmin_shouldReturn200() throws Exception {
+        // Given
+        FoodResponseDto responseDto = FoodResponseDto.builder().id("22222222").build();
+        PagedResponse<FoodResponseDto> expectedResponse = new PagedResponse<>(
+                List.of(responseDto), new Pagination(0, 25, 1));
+
+        when(foodService.getAllFoodsForAdmin(ModerationStatus.PENDING_REVIEW, 0, 25))
+                .thenReturn(List.of(responseDto));
+
+        // When & Then
+        mockMvc.perform(
+                        get("/api/foods/admin/all")
+                                .header(CustomHeaders.X_USER_ROLES, "ADMIN")
+                                .param("offset", "0")
+                                .param("status", ModerationStatus.PENDING_REVIEW.name())
+                                .param("limit", "25")
+                )
+                .andExpect(status().isOk())
+                .andExpect(content().json(objectMapper.writeValueAsString(expectedResponse)));
     }
 }

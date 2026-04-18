@@ -1,6 +1,7 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.dao;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
@@ -22,13 +23,14 @@ import org.springframework.stereotype.Component;
 public class FoodSearchDao {
     private final ElasticsearchClient elasticsearchClient;
 
-    public List<Food> search(String query, int offset, int limit) {
+    public List<Food> search(String query, Long userId, List<String> excludedIds,
+                             int offset, int limit) {
         if (query == null || query.trim().isEmpty()) {
             throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
                     "Query must not be null or empty");
         }
         try {
-            Query searchQuery = buildSearchQuery(query);
+            Query searchQuery = buildSearchQuery(query, userId, excludedIds);
             SearchResponse<Food> response = elasticsearchClient.search(
                     s -> s.index("macro_tracker.foods")
                             .query(searchQuery)
@@ -76,7 +78,6 @@ public class FoodSearchDao {
                     .map(hit -> hit.source() != null ? hit.source().getProductName() : null)
                     .filter(Objects::nonNull)
                     .distinct()
-                    .limit(16)
                     .collect(Collectors.toList());
         } catch (IOException e) {
             throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
@@ -84,25 +85,44 @@ public class FoodSearchDao {
         }
     }
 
-    private Query buildSearchQuery(String query) {
+    private Query buildSearchQuery(String query, Long userId, List<String> excludedIds) {
         String normalizedQuery = query.trim().toLowerCase()
                 .replaceAll("[^\\p{L}\\p{N}\\s]", "");
         String[] tokens = normalizedQuery.split("\\s+");
         return Query.of(q -> q.bool(b -> {
             for (String token : tokens) {
-                String fuzziness = token.length() > 3 ? "AUTO" : "2";
-                b.should(s -> s.multiMatch(mm -> mm
-                        .fields("product_name^4", "_keywords^3",
-                                "generic_name^2", "brands^2")
-                        .query(token)
-                        .fuzziness(fuzziness)
-                ));
-                if (token.matches("\\d{8}|\\d{12}|\\d{13}|\\d{24}")) {
-                    String tokenNoZeros = token.replaceFirst("^0+(?!$)", "");
-                    processBarcode(b, tokenNoZeros);
-                }
+                String fuzziness = token.length() > 3 ? "AUTO" : "0";
+                b.must(mustBuilder -> mustBuilder.bool(tokenBool -> {
+                    tokenBool.should(s -> s.multiMatch(mm -> mm
+                            .fields("product_name^4", "_keywords^3", "generic_name^2", "brands^2")
+                            .query(token)
+                            .fuzziness(fuzziness)
+                    ));
+                    if (token.matches("\\d{8,24}")) {
+                        String tokenNoZeros = token.replaceFirst("^0+(?!$)", "");
+                        processBarcode(tokenBool, tokenNoZeros);
+                    }
+                    return tokenBool;
+                }));
             }
-            b.minimumShouldMatch("1");
+            b.filter(f -> f.bool(boolFilter -> {
+                boolFilter.should(s -> s.term(t -> t.field("moderation_status.keyword")
+                        .value("APPROVED")));
+                if (userId != null) {
+                    boolFilter.should(s -> s.term(t -> t.field("user_id").value(userId)));
+                }
+                boolFilter.minimumShouldMatch("1");
+                return boolFilter;
+            }));
+            if (excludedIds != null && !excludedIds.isEmpty()) {
+                List<FieldValue> excludedValues = excludedIds.stream()
+                        .map(FieldValue::of)
+                        .toList();
+                b.mustNot(mn -> mn.terms(t -> t
+                        .field("_id")
+                        .terms(ts -> ts.value(excludedValues))
+                ));
+            }
             return b;
         }));
     }
@@ -130,37 +150,16 @@ public class FoodSearchDao {
     }
 
     private void processBarcode(BoolQuery.Builder b, String tokenNoZeros) {
-        String tokenAsEan13 = tokenNoZeros.length() <= 13
-                ? String.format("%013d", Long.parseLong(tokenNoZeros))
-                : tokenNoZeros;
-        b.should(s -> s.term(t -> t
-                .field("code")
-                .value(tokenAsEan13)
-                .boost(5f)
-        ));
-        String tokenAsEan8 = tokenNoZeros.length() <= 8
-                ? String.format("%08d", Long.parseLong(tokenNoZeros))
-                : tokenNoZeros;
-        b.should(s -> s.term(t -> t
-                .field("code")
-                .value(tokenAsEan8)
-                .boost(5f)
-        ));
-        String tokenAsUpc = tokenNoZeros.length() <= 12
-                ? String.format("%012d", Long.parseLong(tokenNoZeros))
-                : tokenNoZeros;
-        b.should(s -> s.term(t -> t
-                .field("code")
-                .value(tokenAsUpc)
-                .boost(5f)
-        ));
-        String tokenAsEan24 = tokenNoZeros.length() <= 24
-                ? String.format("%024d", Long.parseLong(tokenNoZeros))
-                : tokenNoZeros;
-        b.should(s -> s.term(t -> t
-                .field("code")
-                .value(tokenAsEan24)
-                .boost(5f)
-        ));
+        b.should(s -> s.term(t -> t.field("code").value(padLeft(tokenNoZeros, 13)).boost(5f)));
+        b.should(s -> s.term(t -> t.field("code").value(padLeft(tokenNoZeros, 8)).boost(5f)));
+        b.should(s -> s.term(t -> t.field("code").value(padLeft(tokenNoZeros, 12)).boost(5f)));
+        b.should(s -> s.term(t -> t.field("code").value(padLeft(tokenNoZeros, 24)).boost(5f)));
+    }
+
+    private String padLeft(String str, int length) {
+        if (str.length() >= length) {
+            return str;
+        }
+        return "0".repeat(length - str.length()) + str;
     }
 }

@@ -24,7 +24,11 @@ public interface FoodMapper {
             @Mapping(target = "keywords", ignore = true),
             @Mapping(target = "imageUrl", ignore = true),
             @Mapping(target = "userId", ignore = true),
-            @Mapping(target = "version", ignore = true)
+            @Mapping(target = "version", ignore = true),
+            @Mapping(target = "originalFoodId", ignore = true),
+            @Mapping(target = "moderationStatus", expression =
+                    "java(com.olehprukhnytskyi.util.ModerationStatus.PENDING_REVIEW)"),
+            @Mapping(target = "verifiedByAdmin", constant = "false")
     })
     Food toModel(FoodRequestDto requestDto);
 
@@ -40,7 +44,10 @@ public interface FoodMapper {
             @Mapping(target = "imageUrl", ignore = true),
             @Mapping(target = "userId", ignore = true),
             @Mapping(target = "nutriments.availableUnits", ignore = true),
-            @Mapping(target = "version", ignore = true)
+            @Mapping(target = "version", ignore = true),
+            @Mapping(target = "originalFoodId", ignore = true),
+            @Mapping(target = "moderationStatus", ignore = true),
+            @Mapping(target = "verifiedByAdmin", ignore = true)
     })
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateFoodFromPatchDto(FoodPatchRequestDto dto, @MappingTarget Food entity);
@@ -48,6 +55,29 @@ public interface FoodMapper {
     @Mapping(target = "availableUnits", ignore = true)
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateNutrimentsFromDto(NutrimentsDto dto, @MappingTarget Nutriments entity);
+
+    @Mappings({
+            @Mapping(target = "id", ignore = true),
+            @Mapping(target = "code", ignore = true),
+            @Mapping(target = "version", ignore = true),
+            @Mapping(target = "userId", ignore = true),
+            @Mapping(target = "originalFoodId", ignore = true),
+            @Mapping(target = "moderationStatus", ignore = true),
+            @Mapping(target = "verifiedByAdmin", ignore = true)
+    })
+    void mergePendingIntoOriginal(Food pendingFood, @MappingTarget Food originalFood);
+
+    @Mappings({
+            @Mapping(target = "id", ignore = true),
+            @Mapping(target = "code", ignore = true),
+            @Mapping(target = "version", ignore = true),
+            @Mapping(target = "originalFoodId", source = "original.id"),
+            @Mapping(target = "userId", source = "userId"),
+            @Mapping(target = "moderationStatus", expression =
+                    "java(com.olehprukhnytskyi.util.ModerationStatus.PENDING_REVIEW)"),
+            @Mapping(target = "verifiedByAdmin", constant = "false")
+    })
+    Food createCustomizedCopy(Food original, Long userId);
 
     @AfterMapping
     default void determineAvailableUnits(Food food,

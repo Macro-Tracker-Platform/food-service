@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Schema(description = "Food product response")
 public class FoodResponseDto {
-    @Schema(description = "Unique identifier", example = "507f1f77bcf86cd799439011")
+    @Schema(description = "Unique identifier", example = "5901234123457")
     private String id;
 
     @Schema(description = "Product barcode", example = "5901234123457")
@@ -41,4 +41,10 @@ public class FoodResponseDto {
 
     @Builder.Default
     private List<UnitType> availableUnits = new ArrayList<>();
+
+    private String originalFoodId;
+
+    private String moderationStatus;
+
+    private boolean verifiedByAdmin;
 }

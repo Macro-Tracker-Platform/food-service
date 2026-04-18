@@ -60,6 +60,7 @@ class FoodServiceCacheTest extends AbstractIntegrationTest {
     @DisplayName("Should cache search results for same query and pagination")
     void findByQuery_shouldCacheSameQueryAndPagination() throws IOException {
         // Given
+        Long userId = 1L;
         String query = "apple";
         int offset = 0;
         int limit = 10;
@@ -67,7 +68,7 @@ class FoodServiceCacheTest extends AbstractIntegrationTest {
         Food food = Food.builder()
                 .id("1")
                 .productName("Apple")
-                .userId(1L)
+                .userId(userId)
                 .build();
         SearchResponse<Food> mockResponse = generateSearchResponse(List.of(food));
 
@@ -78,8 +79,8 @@ class FoodServiceCacheTest extends AbstractIntegrationTest {
         )).thenReturn(mockResponse);
 
         // When
-        FoodListCacheWrapper first = foodService.findByQuery(query, offset, limit);
-        FoodListCacheWrapper second = foodService.findByQuery(query, offset, limit);
+        FoodListCacheWrapper first = foodService.findByQuery(query, userId, offset, limit);
+        FoodListCacheWrapper second = foodService.findByQuery(query, userId, offset, limit);
 
         // Then
         verify(elasticsearchClient, times(1)).search(

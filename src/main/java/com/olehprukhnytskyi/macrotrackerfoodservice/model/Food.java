@@ -1,6 +1,7 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.olehprukhnytskyi.util.ModerationStatus;
 import jakarta.persistence.Version;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -53,4 +54,18 @@ public class Food {
     @Field(name = "user_id")
     @JsonProperty("user_id")
     private Long userId;
+
+    @Field(name = "original_food_id")
+    @JsonProperty("original_food_id")
+    private String originalFoodId;
+
+    @Field(name = "moderation_status")
+    @JsonProperty("moderation_status")
+    @Builder.Default
+    private ModerationStatus moderationStatus = ModerationStatus.NONE;
+
+    @Field(name = "verified_by_admin")
+    @JsonProperty("verified_by_admin")
+    @Builder.Default
+    private boolean verifiedByAdmin = false;
 }
