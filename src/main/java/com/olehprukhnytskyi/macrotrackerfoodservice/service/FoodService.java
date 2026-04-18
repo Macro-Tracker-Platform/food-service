@@ -12,6 +12,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodListCacheWrapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.OriginalIdOnly;
 import com.olehprukhnytskyi.macrotrackerfoodservice.event.FoodCreatedEvent;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.FoodMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
@@ -106,14 +107,17 @@ public class FoodService {
     @Cacheable(
             value = CacheConstants.SEARCH_RESULTS,
             key = "T(org.springframework.util.DigestUtils).md5DigestAsHex((#query"
-                    + ".trim().toLowerCase() + '-' + #offset + '-' + #limit).getBytes())",
+                  + ".trim().toLowerCase() + '-' + #offset + '-' + #limit + '-'"
+                  + " + (#userId != null ? #userId : 'anonymous')).getBytes())",
             unless = "#result == null || #result.items.isEmpty()"
     )
     public FoodListCacheWrapper findByQuery(String query, Long userId, int offset, int limit) {
         log.debug("Searching foods query='{}' offset={} limit={}", query, offset, limit);
         List<String> excludedIds = Collections.emptyList();
         if (userId != null) {
-            excludedIds = foodRepository.findOverriddenOriginalIdsByUserId(userId);
+            excludedIds = foodRepository.findOriginalIdsByUserId(userId).stream()
+                    .map(OriginalIdOnly::getOriginalFoodId)
+                    .toList();
         }
         List<Food> foods = foodSearchDao.search(query, userId, excludedIds, offset, limit);
         return new FoodListCacheWrapper(foodMapper.toDto(foods));

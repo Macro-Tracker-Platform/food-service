@@ -1,8 +1,8 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.dao;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
+import co.elastic.clients.elasticsearch._types.query_dsl.Operator;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
@@ -86,44 +86,59 @@ public class FoodSearchDao {
     }
 
     private Query buildSearchQuery(String query, Long userId, List<String> excludedIds) {
-        String normalizedQuery = query.trim().toLowerCase()
-                .replaceAll("[^\\p{L}\\p{N}\\s]", "");
-        String[] tokens = normalizedQuery.split("\\s+");
-        return Query.of(q -> q.bool(b -> {
-            for (String token : tokens) {
-                String fuzziness = token.length() > 3 ? "AUTO" : "0";
-                b.must(mustBuilder -> mustBuilder.bool(tokenBool -> {
-                    tokenBool.should(s -> s.multiMatch(mm -> mm
-                            .fields("product_name^4", "_keywords^3", "generic_name^2", "brands^2")
-                            .query(token)
-                            .fuzziness(fuzziness)
-                    ));
-                    if (token.matches("\\d{8,24}")) {
-                        String tokenNoZeros = token.replaceFirst("^0+(?!$)", "");
-                        processBarcode(tokenBool, tokenNoZeros);
-                    }
-                    return tokenBool;
-                }));
-            }
-            b.filter(f -> f.bool(boolFilter -> {
-                boolFilter.should(s -> s.term(t -> t.field("moderation_status.keyword")
-                        .value("APPROVED")));
-                if (userId != null) {
-                    boolFilter.should(s -> s.term(t -> t.field("user_id").value(userId)));
+        String cleanQuery = query.trim().replaceAll("[^\\p{L}\\p{N}\\s]", "").trim();
+        return Query.of(q -> q.bool(mainBool -> {
+            mainBool.must(m -> m.bool(searchBool -> {
+                searchBool.should(s -> s.multiMatch(mm -> mm
+                        .fields("product_name^10", "generic_name^6", "brands^6")
+                        .query(cleanQuery)
+                        .type(TextQueryType.Phrase)
+                ));
+                searchBool.should(s -> s.multiMatch(mm -> mm
+                        .fields("product_name^6", "_keywords^5", "generic_name^4", "brands^4")
+                        .query(cleanQuery)
+                        .operator(Operator.And)
+                ));
+                searchBool.should(s -> s.multiMatch(mm -> mm
+                        .fields("product_name^3", "_keywords^2", "generic_name^1")
+                        .query(cleanQuery)
+                        .fuzziness("AUTO")
+                ));
+                if (cleanQuery.matches("^\\d{6,24}$")) {
+                    String tokenNoZeros = cleanQuery.replaceFirst("^0+(?!$)", "");
+                    processBarcode(searchBool, tokenNoZeros);
                 }
-                boolFilter.minimumShouldMatch("1");
-                return boolFilter;
+                searchBool.minimumShouldMatch("1");
+                return searchBool;
             }));
-            if (excludedIds != null && !excludedIds.isEmpty()) {
-                List<FieldValue> excludedValues = excludedIds.stream()
-                        .map(FieldValue::of)
-                        .toList();
-                b.mustNot(mn -> mn.terms(t -> t
-                        .field("_id")
-                        .terms(ts -> ts.value(excludedValues))
+            mainBool.filter(f -> f.bool(filterBool -> {
+                filterBool.should(s -> s.match(m -> m.field("moderation_status")
+                        .query("APPROVED")));
+                filterBool.should(s -> s.bool(b -> b
+                        .mustNot(mn -> mn.exists(e -> e.field("user_id")))
+                ));
+                if (userId != null) {
+                    filterBool.should(s -> s.term(t -> t.field("user_id").value(userId)));
+                }
+                filterBool.minimumShouldMatch("1");
+                return filterBool;
+            }));
+            mainBool.should(s -> s.match(m -> m
+                    .field("moderation_status")
+                    .query("APPROVED")
+                    .boost(100.0f)
+            ));
+            if (userId != null) {
+                mainBool.should(s -> s.term(t -> t
+                        .field("user_id")
+                        .value(userId)
+                        .boost(1000.0f)
                 ));
             }
-            return b;
+            if (excludedIds != null && !excludedIds.isEmpty()) {
+                mainBool.mustNot(mn -> mn.ids(i -> i.values(excludedIds)));
+            }
+            return mainBool;
         }));
     }
 
