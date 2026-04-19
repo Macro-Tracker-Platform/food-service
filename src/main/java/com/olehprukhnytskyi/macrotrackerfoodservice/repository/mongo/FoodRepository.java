@@ -17,6 +17,8 @@ public interface FoodRepository extends MongoRepository<Food, String> {
 
     Page<Food> findAllByUserId(Long userId, Pageable pageable);
 
+    Page<Food> findAllByUserIdAndIdNotIn(Long userId, List<String> excludedIds, Pageable pageable);
+
     Optional<Food> findByIdAndUserId(String id, Long userId);
 
     Page<Food> findAllByModerationStatus(ModerationStatus status, Pageable pageable);
@@ -24,4 +26,10 @@ public interface FoodRepository extends MongoRepository<Food, String> {
     @Query(value = "{ 'user_id': ?0, 'original_food_id': { $ne: null } }",
             fields = "{ 'original_food_id': 1, '_id': 0 }")
     List<OriginalIdOnly> findOriginalIdsByUserId(Long userId);
+
+    Optional<Food> findByOriginalFoodIdAndUserIdAndModerationStatus(
+            String originalFoodId,
+            Long userId,
+            ModerationStatus status
+    );
 }

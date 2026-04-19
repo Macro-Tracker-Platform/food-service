@@ -32,6 +32,7 @@ import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.retry.support.RetryTemplate;
@@ -98,8 +99,16 @@ public class FoodService {
                     "Offset must be a multiple of limit");
         }
         Pageable pageable = PageRequest.of(offset / limit, limit);
-        return foodRepository.findAllByUserId(userId, pageable)
-                .stream()
+        List<String> excludedIds = foodRepository.findOriginalIdsByUserId(userId).stream()
+                .map(OriginalIdOnly::getOriginalFoodId)
+                .toList();
+        Page<Food> foodsPage;
+        if (excludedIds.isEmpty()) {
+            foodsPage = foodRepository.findAllByUserId(userId, pageable);
+        } else {
+            foodsPage = foodRepository.findAllByUserIdAndIdNotIn(userId, excludedIds, pageable);
+        }
+        return foodsPage.stream()
                 .map(foodMapper::toDto)
                 .toList();
     }
@@ -201,16 +210,28 @@ public class FoodService {
     public FoodResponseDto customizeAndSubmitForReview(String originalId,
                                                        FoodPatchRequestDto patchDto, Long userId) {
         log.info("User {} is customizing food id={}", userId, originalId);
-        Food original = foodRepository.findById(originalId)
-                .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
-                        "Food not found with id: " + originalId));
-        Food customizedFood = foodMapper.createCustomizedCopy(original, userId);
-        foodMapper.updateFoodFromPatchDto(patchDto, customizedFood);
-        String newCode = foodCodeGenerator.resolveCode(new FoodRequestDto());
-        customizedFood.setId(newCode);
-        customizedFood.setCode(newCode);
-        Food saved = foodRepository.save(customizedFood);
-        return foodMapper.toDto(saved);
+        Optional<Food> existingPendingCopy = foodRepository
+                .findByOriginalFoodIdAndUserIdAndModerationStatus(
+                        originalId, userId, ModerationStatus.PENDING_REVIEW);
+        Food foodToProcess;
+        if (existingPendingCopy.isPresent()) {
+            log.info("Found existing pending copy id={} for original id={}. Updating it.",
+                    existingPendingCopy.get().getId(), originalId);
+            foodToProcess = existingPendingCopy.get();
+            foodMapper.updateFoodFromPatchDto(patchDto, foodToProcess);
+        } else {
+            log.info("No pending copy found. Creating a new one for original id={}", originalId);
+            Food original = foodRepository.findById(originalId)
+                    .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
+                            "Food not found with id: " + originalId));
+            foodToProcess = foodMapper.createCustomizedCopy(original, userId);
+            foodMapper.updateFoodFromPatchDto(patchDto, foodToProcess);
+            String newCode = foodCodeGenerator.resolveCode(new FoodRequestDto());
+            foodToProcess.setId(newCode);
+            foodToProcess.setCode(newCode);
+            foodToProcess.setModerationStatus(ModerationStatus.PENDING_REVIEW);
+        }
+        return foodMapper.toDto(foodRepository.save(foodToProcess));
     }
 
     @Transactional
