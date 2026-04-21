@@ -210,9 +210,16 @@ public class FoodService {
     }
 
     @Transactional
-    public FoodResponseDto customizeAndSubmitForReview(String originalId,
+    public FoodResponseDto customizeAndSubmitForReview(String id,
                                                        FoodPatchRequestDto patchDto, Long userId) {
-        log.info("User {} is customizing food id={}", userId, originalId);
+        log.info("User {} is customizing food id={}", userId, id);
+        Food sourceFood = foodRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
+                        "Food not found with id: " + id));
+        String originalId = sourceFood.getOriginalFoodId() != null
+                ? sourceFood.getOriginalFoodId()
+                : sourceFood.getId();
+
         Optional<Food> existingPendingCopy = foodRepository
                 .findByOriginalFoodIdAndUserId(originalId, userId);
         Food foodToProcess;
@@ -225,10 +232,7 @@ public class FoodService {
             foodToProcess.setVerifiedByAdmin(false);
         } else {
             log.info("No pending copy found. Creating a new one for original id={}", originalId);
-            Food original = foodRepository.findById(originalId)
-                    .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
-                            "Food not found with id: " + originalId));
-            foodToProcess = foodMapper.createCustomizedCopy(original, userId);
+            foodToProcess = foodMapper.createCustomizedCopy(sourceFood, userId);
             foodMapper.updateFoodFromPatchDto(patchDto, foodToProcess);
             String newCode = foodCodeGenerator.resolveCode(new FoodRequestDto());
             foodToProcess.setId(newCode);
