@@ -176,6 +176,7 @@ class FoodServiceTest {
         Food existingFood = new Food();
         existingFood.setId(existingCode);
         existingFood.setProductName("other_name");
+        existingFood.setUserId(99L);
 
         Food customizedFood = new Food();
         customizedFood.setId("custom-id-123");
@@ -192,6 +193,9 @@ class FoodServiceTest {
                 .willReturn("https://s3/image.jpg");
         given(foodRepository.findById("custom-id-123")).willReturn(Optional.of(customizedFood));
         given(foodMapper.createCustomizedCopy(any(), anyLong())).willReturn(new Food());
+        given(foodRepository.findByOriginalFoodIdAndUserId(any(), any()))
+                .willReturn(Optional.empty());
+        given(foodCodeGenerator.resolveCode(any())).willReturn("new-code-123");
 
         // When
         FoodResponseDto result = foodService.createFoodWithImages(foodRequestDto, image, 1L);
@@ -358,14 +362,16 @@ class FoodServiceTest {
     void customizeAndSubmitForReview_shouldCreateCopyAndSave() {
         // Given
         String originalId = "orig123";
-        Long userId = 1L;
         Food original = new Food();
         original.setId(originalId);
+        original.setUserId(99L);
 
         Food customized = new Food();
         Food saved = new Food();
         FoodResponseDto expectedDto = new FoodResponseDto();
         FoodPatchRequestDto patchDto = new FoodPatchRequestDto();
+
+        Long userId = 1L;
 
         given(foodRepository.findById(originalId)).willReturn(Optional.of(original));
         given(foodMapper.createCustomizedCopy(original, userId)).willReturn(customized);

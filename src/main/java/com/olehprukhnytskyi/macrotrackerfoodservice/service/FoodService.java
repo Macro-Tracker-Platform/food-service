@@ -244,10 +244,17 @@ public class FoodService {
         Food sourceFood = foodRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
                         "Food not found with id: " + id));
+        if (sourceFood.getOriginalFoodId() == null
+                && sourceFood.getUserId().equals(userId)
+                && sourceFood.getModerationStatus() == ModerationStatus.PENDING_REVIEW) {
+            log.info("Food id={} is already a pending original owned by user={}."
+                     + " Updating directly.", id, userId);
+            foodMapper.updateFoodFromPatchDto(patchDto, sourceFood);
+            return foodMapper.toDto(foodRepository.save(sourceFood));
+        }
         String originalId = sourceFood.getOriginalFoodId() != null
                 ? sourceFood.getOriginalFoodId()
                 : sourceFood.getId();
-
         Optional<Food> existingPendingCopy = foodRepository
                 .findByOriginalFoodIdAndUserId(originalId, userId);
         Food foodToProcess;
