@@ -53,9 +53,22 @@ public interface FoodMapper {
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateFoodFromPatchDto(FoodPatchRequestDto dto, @MappingTarget Food entity);
 
-    @Mapping(target = "availableUnits", ignore = true)
-    @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.SET_TO_NULL)
-    void updateNutrimentsFromPatchDto(NutrimentsPatchDto dto, @MappingTarget Nutriments entity);
+    @AfterMapping
+    default void updateNutrimentsFromPatchDto(NutrimentsPatchDto dto,
+                                              @MappingTarget Nutriments entity) {
+        if (dto == null) {
+            return;
+        }
+        entity.setCaloriesPer100(dto.getCaloriesPer100());
+        entity.setFatPer100(dto.getFatPer100());
+        entity.setProteinPer100(dto.getProteinPer100());
+        entity.setCarbohydratesPer100(dto.getCarbohydratesPer100());
+
+        entity.setCaloriesPerPiece(dto.getCaloriesPerPiece());
+        entity.setFatPerPiece(dto.getFatPerPiece());
+        entity.setProteinPerPiece(dto.getProteinPerPiece());
+        entity.setCarbohydratesPerPiece(dto.getCarbohydratesPerPiece());
+    }
 
     FoodPatchRequestDto toPatchDto(FoodRequestDto requestDto);
 
