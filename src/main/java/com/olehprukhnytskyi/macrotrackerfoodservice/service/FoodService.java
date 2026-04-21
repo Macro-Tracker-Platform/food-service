@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
@@ -53,6 +55,7 @@ public class FoodService {
     private final FoodCodeGenerator foodCodeGenerator;
     private final ApplicationEventPublisher eventPublisher;
     private final RetryTemplate retryTemplate;
+    private final CacheManager cacheManager;
 
     @CachePut(value = CacheConstants.FOOD_DATA, key = "#result.id")
     public FoodResponseDto createFoodWithImages(FoodRequestDto dto,
@@ -211,14 +214,15 @@ public class FoodService {
                                                        FoodPatchRequestDto patchDto, Long userId) {
         log.info("User {} is customizing food id={}", userId, originalId);
         Optional<Food> existingPendingCopy = foodRepository
-                .findByOriginalFoodIdAndUserIdAndModerationStatus(
-                        originalId, userId, ModerationStatus.PENDING_REVIEW);
+                .findByOriginalFoodIdAndUserId(originalId, userId);
         Food foodToProcess;
         if (existingPendingCopy.isPresent()) {
             log.info("Found existing pending copy id={} for original id={}. Updating it.",
                     existingPendingCopy.get().getId(), originalId);
             foodToProcess = existingPendingCopy.get();
             foodMapper.updateFoodFromPatchDto(patchDto, foodToProcess);
+            foodToProcess.setModerationStatus(ModerationStatus.PENDING_REVIEW);
+            foodToProcess.setVerifiedByAdmin(false);
         } else {
             log.info("No pending copy found. Creating a new one for original id={}", originalId);
             Food original = foodRepository.findById(originalId)
@@ -235,7 +239,6 @@ public class FoodService {
     }
 
     @Transactional
-    @CacheEvict(value = CacheConstants.FOOD_DATA, key = "#p0", condition = "#result != null")
     public FoodResponseDto approveModeration(String pendingFoodId) {
         log.info("Admin is approving food id={}", pendingFoodId);
         Food pendingFood = foodRepository.findById(pendingFoodId)
@@ -250,6 +253,8 @@ public class FoodService {
             pendingFood.setModerationStatus(ModerationStatus.APPROVED);
             foodRepository.save(original);
             foodRepository.delete(pendingFood);
+            evictFoodCache(pendingFoodId);
+            evictFoodCache(original.getId());
             return foodMapper.toDto(original);
         } else {
             pendingFood.setVerifiedByAdmin(true);
@@ -316,5 +321,16 @@ public class FoodService {
             }
         }
         return Optional.empty();
+    }
+
+    private void evictFoodCache(String foodId) {
+        try {
+            Cache cache = cacheManager.getCache(CacheConstants.FOOD_DATA);
+            if (cache != null) {
+                cache.evict(foodId);
+            }
+        } catch (Exception e) {
+            log.error("Failed to evict cache", e);
+        }
     }
 }

@@ -27,9 +27,8 @@ public interface FoodRepository extends MongoRepository<Food, String> {
             fields = "{ 'original_food_id': 1, '_id': 0 }")
     List<OriginalIdOnly> findOriginalIdsByUserId(Long userId);
 
-    Optional<Food> findByOriginalFoodIdAndUserIdAndModerationStatus(
+    Optional<Food> findByOriginalFoodIdAndUserId(
             String originalFoodId,
-            Long userId,
-            ModerationStatus status
+            Long userId
     );
 }

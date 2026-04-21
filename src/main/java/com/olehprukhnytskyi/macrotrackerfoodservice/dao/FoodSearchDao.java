@@ -165,10 +165,16 @@ public class FoodSearchDao {
     }
 
     private void processBarcode(BoolQuery.Builder b, String tokenNoZeros) {
-        b.should(s -> s.term(t -> t.field("code").value(padLeft(tokenNoZeros, 13)).boost(5f)));
-        b.should(s -> s.term(t -> t.field("code").value(padLeft(tokenNoZeros, 8)).boost(5f)));
-        b.should(s -> s.term(t -> t.field("code").value(padLeft(tokenNoZeros, 12)).boost(5f)));
-        b.should(s -> s.term(t -> t.field("code").value(padLeft(tokenNoZeros, 24)).boost(5f)));
+        String[] barcodeFormats = {
+                padLeft(tokenNoZeros, 13),
+                padLeft(tokenNoZeros, 8),
+                padLeft(tokenNoZeros, 12),
+                padLeft(tokenNoZeros, 24)
+        };
+        for (String barcode : barcodeFormats) {
+            b.should(s -> s.term(t -> t.field("code").value(barcode).boost(5f)));
+            b.should(s -> s.term(t -> t.field("original_food_id").value(barcode).boost(5f)));
+        }
     }
 
     private String padLeft(String str, int length) {
