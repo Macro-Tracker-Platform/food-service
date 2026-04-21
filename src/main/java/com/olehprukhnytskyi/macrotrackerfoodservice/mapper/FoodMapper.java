@@ -5,6 +5,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsPatchDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Nutriments;
 import java.util.ArrayList;
@@ -51,6 +52,12 @@ public interface FoodMapper {
     })
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateFoodFromPatchDto(FoodPatchRequestDto dto, @MappingTarget Food entity);
+
+    @Mapping(target = "availableUnits", ignore = true)
+    @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.SET_TO_NULL)
+    void updateNutrimentsFromPatchDto(NutrimentsPatchDto dto, @MappingTarget Nutriments entity);
+
+    FoodPatchRequestDto toPatchDto(FoodRequestDto requestDto);
 
     @Mapping(target = "availableUnits", ignore = true)
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)

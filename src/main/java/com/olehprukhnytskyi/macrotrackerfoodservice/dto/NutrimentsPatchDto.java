@@ -1,5 +1,6 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.dto;
 
+import com.olehprukhnytskyi.macrotrackerfoodservice.validation.ValidUnitGroups;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMin;
 import java.math.BigDecimal;
@@ -12,6 +13,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@ValidUnitGroups
 @Schema(description = "Nutrition information partial update")
 public class NutrimentsPatchDto {
     @Schema(description = "Calories per 100g", example = "170.0", minimum = "0.0")

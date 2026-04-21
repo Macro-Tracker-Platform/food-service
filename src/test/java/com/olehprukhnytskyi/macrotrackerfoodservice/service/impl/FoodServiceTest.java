@@ -19,7 +19,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 
 import com.mongodb.DuplicateKeyException;
-import com.olehprukhnytskyi.exception.ConflictException;
 import com.olehprukhnytskyi.exception.InternalServerException;
 import com.olehprukhnytskyi.exception.NotFoundException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
@@ -167,22 +166,43 @@ class FoodServiceTest {
     }
 
     @Test
-    @DisplayName("When food with same code exists but different data,"
-            + " should throw ConflictException")
-    void createFoodWithImages_whenSameCodeExistsButDifferentData_shouldThrowException() {
+    @DisplayName("When food with same code exists but different data, "
+                 + "should redirect to customize flow")
+    void createFoodWithImages_whenSameCodeExistsButDifferentData_shouldRedirectToCustomize() {
         // Given
-        Food differentFood = new Food();
-        differentFood.setProductName("other_name");
+        String existingCode = "12345678";
+        foodRequestDto.setCode(existingCode);
 
-        given(foodRepository.findById(anyString())).willReturn(Optional.of(differentFood));
+        Food existingFood = new Food();
+        existingFood.setId(existingCode);
+        existingFood.setProductName("other_name");
+
+        Food customizedFood = new Food();
+        customizedFood.setId("custom-id-123");
+
+        FoodResponseDto customizedResponse = new FoodResponseDto();
+        customizedResponse.setId("custom-id-123");
+
+        given(foodRepository.findById(existingCode)).willReturn(Optional.of(existingFood));
+        given(foodMapper.toPatchDto(foodRequestDto)).willReturn(new FoodPatchRequestDto());
+        given(foodRepository.save(any(Food.class))).willReturn(customizedFood);
+        given(foodMapper.toDto(any(Food.class))).willReturn(customizedResponse);
+        given(foodAssetService.uploadToTemp(image)).willReturn("temp-image-key");
+        given(foodAssetService.confirmImage("temp-image-key", "custom-id-123"))
+                .willReturn("https://s3/image.jpg");
+        given(foodRepository.findById("custom-id-123")).willReturn(Optional.of(customizedFood));
+        given(foodMapper.createCustomizedCopy(any(), anyLong())).willReturn(new Food());
 
         // When
-        ConflictException conflictException = assertThrows(ConflictException.class,
-                () -> foodService.createFoodWithImages(foodRequestDto, image, 1L));
+        FoodResponseDto result = foodService.createFoodWithImages(foodRequestDto, image, 1L);
 
         // Then
-        String expected = "Food with this code already exists with different data";
-        assertEquals(expected, conflictException.getMessage());
+        assertNotNull(result);
+        assertEquals("custom-id-123", result.getId());
+
+        verify(foodMapper).toPatchDto(foodRequestDto);
+        verify(foodAssetService).uploadToTemp(image);
+        verify(foodAssetService).confirmImage("temp-image-key", "custom-id-123");
     }
 
     @Test

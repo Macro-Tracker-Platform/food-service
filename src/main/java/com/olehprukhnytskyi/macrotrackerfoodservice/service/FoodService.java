@@ -57,16 +57,44 @@ public class FoodService {
     private final RetryTemplate retryTemplate;
     private final CacheManager cacheManager;
 
+    @Transactional
     @CachePut(value = CacheConstants.FOOD_DATA, key = "#result.id")
     public FoodResponseDto createFoodWithImages(FoodRequestDto dto,
                                                 MultipartFile image, Long userId) {
         log.info("Creating new food item for userId={}", userId);
         try {
-            Optional<Food> existingSameProduct = tryFindExistingSameProduct(dto);
-            if (existingSameProduct.isPresent()) {
-                log.info("Returning existing food id={}", existingSameProduct.get().getId());
-                return foodMapper.toDto(existingSameProduct.get());
+            if (dto.getCode() != null) {
+                Optional<Food> existing = foodRepository.findById(dto.getCode());
+                if (existing.isPresent()) {
+                    if (isSameProduct(existing.get(), dto)) {
+                        log.info("Returning existing food id={}", existing.get().getId());
+                        return foodMapper.toDto(existing.get());
+                    } else {
+                        log.info("Food exists with different data. "
+                                 + "Redirecting to customize flow for userId={}", userId);
+                        FoodPatchRequestDto patchDto = foodMapper.toPatchDto(dto);
+                        FoodResponseDto customizedResponse = customizeAndSubmitForReview(
+                                existing.get().getId(), patchDto, userId);
+                        if (image != null && !image.isEmpty()) {
+                            String tempImageKey = foodAssetService.uploadToTemp(image);
+                            try {
+                                String finalUrl = foodAssetService
+                                        .confirmImage(tempImageKey, customizedResponse.getId());
+                                Food customizedFood = foodRepository
+                                        .findById(customizedResponse.getId()).orElseThrow();
+                                customizedFood.setImageUrl(finalUrl);
+                                foodRepository.save(customizedFood);
+                                customizedResponse.setImageUrl(finalUrl);
+                            } catch (Exception e) {
+                                log.error("Failed to confirm image for customized foodId={}",
+                                        customizedResponse.getId(), e);
+                            }
+                        }
+                        return customizedResponse;
+                    }
+                }
             }
+
             String tempImageKey = null;
             if (image != null && !image.isEmpty()) {
                 tempImageKey = foodAssetService.uploadToTemp(image);
@@ -87,7 +115,7 @@ public class FoodService {
             eventPublisher.publishEvent(new FoodCreatedEvent(savedFood.getId(), userId));
             log.info("Food created successfully userId={} foodId={}", userId, savedFood.getId());
             return foodMapper.toDto(savedFood);
-        } catch (ConflictException | BadRequestException e) {
+        } catch (BadRequestException e) {
             throw e;
         } catch (Exception e) {
             log.error("Unexpected error while saving food userId={}", userId, e);
@@ -309,22 +337,6 @@ public class FoodService {
                 && existingFood.getGenericName().equals(newRequest.getGenericName())
                 && existingFood.getNutriments().equals(
                         nutrimentsMapper.toModel(newRequest.getNutriments()));
-    }
-
-    private Optional<Food> tryFindExistingSameProduct(FoodRequestDto dto) {
-        if (dto.getCode() != null) {
-            Optional<Food> existing = foodRepository.findById(dto.getCode());
-            if (existing.isPresent()) {
-                if (isSameProduct(existing.get(), dto)) {
-                    log.debug("Duplicate food detected with same data, "
-                            + "returning existing id={}", existing.get().getId());
-                    return existing;
-                }
-                throw new ConflictException(FoodErrorCode.FOOD_ALREADY_EXISTS,
-                        "Food with this code already exists with different data");
-            }
-        }
-        return Optional.empty();
     }
 
     private void evictFoodCache(String foodId) {

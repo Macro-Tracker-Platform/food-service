@@ -586,6 +586,9 @@ class FoodControllerTest extends AbstractIntegrationTest {
         String id = "11111111";
 
         NutrimentsPatchDto nutrimentsPatchDto = NutrimentsPatchDto.builder()
+                .caloriesPer100(BigDecimal.valueOf(250))
+                .fatPer100(BigDecimal.valueOf(10))
+                .proteinPer100(BigDecimal.valueOf(15))
                 .carbohydratesPer100(BigDecimal.valueOf(-100))
                 .build();
 
