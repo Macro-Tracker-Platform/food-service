@@ -22,7 +22,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,9 +50,10 @@ public class FoodController {
     )
     @GetMapping("/{id}")
     public ResponseEntity<FoodResponseDto> findById(
+            @RequestHeader(value = CustomHeaders.X_USER_ID) Long userId,
             @PathVariable String id) {
         log.info("Fetching food by id={}", id);
-        FoodResponseDto food = foodService.findById(id);
+        FoodResponseDto food = foodService.findPersonalizedById(id, userId);
         log.debug("Food retrieved successfully for id={}", id);
         return ResponseEntity.ok(food);
     }
@@ -89,11 +89,12 @@ public class FoodController {
     )
     @PostMapping("/batch")
     public ResponseEntity<List<FoodResponseDto>> getFoodsDetails(
+            @RequestHeader(value = CustomHeaders.X_USER_ID) Long userId,
             @RequestBody
             @Size(max = 100, message = "Batch size cannot exceed 100 items")
             List<String> foodIds) {
         log.info("Fetching batch details for {} food items", foodIds.size());
-        List<FoodResponseDto> result = foodService.findAllByIds(foodIds);
+        List<FoodResponseDto> result = foodService.findAllByIds(foodIds, userId);
         log.debug("Batch retrieval completed. Found {} items out of requested {}",
                 result.size(), foodIds.size());
         return ResponseEntity.ok(result);
@@ -148,21 +149,6 @@ public class FoodController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(saved);
-    }
-
-    @Operation(
-            summary = "Update food product",
-            description = "Partially update food product information"
-    )
-    @PatchMapping("/{id}")
-    public ResponseEntity<FoodResponseDto> patch(
-            @PathVariable String id,
-            @RequestBody @Valid FoodPatchRequestDto dto,
-            @RequestHeader(CustomHeaders.X_USER_ID) Long userId) {
-        log.info("Updating food with id={}", id);
-        FoodResponseDto updated = foodService.patch(id, dto, userId);
-        log.debug("Food updated successfully for id={}", id);
-        return ResponseEntity.ok(updated);
     }
 
     @Operation(

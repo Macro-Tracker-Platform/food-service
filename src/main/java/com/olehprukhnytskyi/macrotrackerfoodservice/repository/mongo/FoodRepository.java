@@ -3,6 +3,7 @@ package com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.OriginalIdOnly;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.util.ModerationStatus;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -31,4 +32,6 @@ public interface FoodRepository extends MongoRepository<Food, String> {
             String originalFoodId,
             Long userId
     );
+
+    List<Food> findByOriginalFoodIdInAndUserId(Collection<String> originalFoodIds, Long userId);
 }

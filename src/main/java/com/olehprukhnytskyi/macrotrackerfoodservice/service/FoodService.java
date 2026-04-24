@@ -1,11 +1,9 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.service;
 
 import com.olehprukhnytskyi.exception.BadRequestException;
-import com.olehprukhnytskyi.exception.ConflictException;
 import com.olehprukhnytskyi.exception.InternalServerException;
 import com.olehprukhnytskyi.exception.NotFoundException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
-import com.olehprukhnytskyi.exception.error.DBErrorCode;
 import com.olehprukhnytskyi.exception.error.FoodErrorCode;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dao.FoodSearchDao;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodListCacheWrapper;
@@ -23,18 +21,21 @@ import com.olehprukhnytskyi.model.OutboxEvent;
 import com.olehprukhnytskyi.repository.jpa.OutboxRepository;
 import com.olehprukhnytskyi.util.ModerationStatus;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -57,9 +58,19 @@ public class FoodService {
     private final ApplicationEventPublisher eventPublisher;
     private final RetryTemplate retryTemplate;
     private final CacheManager cacheManager;
+    private FoodService self;
+
+    @Autowired
+    public void setSelf(@Lazy FoodService self) {
+        this.self = self;
+    }
 
     @Transactional
-    @CachePut(value = CacheConstants.FOOD_DATA, key = "#result.id")
+    @CachePut(
+            value = CacheConstants.FOOD_DATA,
+            key = "#result.id",
+            unless = "#result == null || !#result.verifiedByAdmin"
+    )
     public FoodResponseDto createFoodWithImages(FoodRequestDto dto,
                                                 MultipartFile image, Long userId) {
         log.info("Creating new food item for userId={}", userId);
@@ -125,6 +136,17 @@ public class FoodService {
         }
     }
 
+    public FoodResponseDto findPersonalizedById(String barcodeOrId, Long userId) {
+        if (userId != null) {
+            Optional<Food> customCopy = foodRepository
+                    .findByOriginalFoodIdAndUserId(barcodeOrId, userId);
+            if (customCopy.isPresent()) {
+                return self.findById(customCopy.get().getId());
+            }
+        }
+        return self.findById(barcodeOrId);
+    }
+
     public List<FoodResponseDto> findAllByUserId(Long userId, int offset, int limit) {
         if (offset % limit != 0) {
             throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
@@ -164,7 +186,11 @@ public class FoodService {
         return new FoodListCacheWrapper(foodMapper.toDto(foods));
     }
 
-    @Cacheable(value = CacheConstants.FOOD_DATA, key = "#id")
+    @Cacheable(
+            value = CacheConstants.FOOD_DATA,
+            key = "#id",
+            unless = "#result == null || !#result.verifiedByAdmin"
+    )
     public FoodResponseDto findById(String id) {
         log.debug("Fetching food by id={}", id);
         Food food = foodRepository.findById(id)
@@ -182,28 +208,6 @@ public class FoodService {
     public List<String> getSearchSuggestions(String query) {
         log.trace("Fetching search suggestions query='{}'", query);
         return foodSearchDao.getSuggestions(query);
-    }
-
-    @CachePut(value = CacheConstants.FOOD_DATA, key = "#id")
-    public FoodResponseDto patch(String id, FoodPatchRequestDto dto, Long userId) {
-        log.info("Updating food id={}", id);
-        try {
-            Food existing = foodRepository.findByIdAndUserId(id, userId)
-                    .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
-                            "Food not found with id: " + id));
-            foodMapper.updateFoodFromPatchDto(dto, existing);
-            Food saved = foodRepository.save(existing);
-            return foodMapper.toDto(saved);
-        } catch (OptimisticLockingFailureException e) {
-            throw new ConflictException(DBErrorCode.DB_DUPLICATE_KEY,
-                    "The data has been changed by another user."
-                    + " Please refresh the page and try again");
-        } catch (NotFoundException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
-                    "Unexpected error while patching food", e);
-        }
     }
 
     @CacheEvict(value = CacheConstants.FOOD_DATA, key = "#id")
@@ -232,8 +236,21 @@ public class FoodService {
         log.debug("Food deleted successfully id={}", id);
     }
 
-    public List<FoodResponseDto> findAllByIds(List<String> foodIds) {
-        return foodRepository.findAllById(foodIds).stream()
+    public List<FoodResponseDto> findAllByIds(List<String> foodIds, Long userId) {
+        if (foodIds == null || foodIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<String, String> replacements = new HashMap<>();
+        if (userId != null) {
+            foodRepository.findByOriginalFoodIdInAndUserId(foodIds, userId)
+                    .forEach(copy -> replacements.put(copy.getOriginalFoodId(), copy.getId()));
+        }
+        List<String> finalIdsToFetch = foodIds.stream()
+                .map(id -> replacements.getOrDefault(id, id))
+                .distinct()
+                .toList();
+        List<Food> foods = foodRepository.findAllById(finalIdsToFetch);
+        return foods.stream()
                 .map(foodMapper::toDto)
                 .toList();
     }
@@ -299,7 +316,9 @@ public class FoodService {
         } else {
             pendingFood.setVerifiedByAdmin(true);
             pendingFood.setModerationStatus(ModerationStatus.APPROVED);
-            return foodMapper.toDto(foodRepository.save(pendingFood));
+            Food saved = foodRepository.save(pendingFood);
+            evictFoodCache(saved.getId());
+            return foodMapper.toDto(saved);
         }
     }
 

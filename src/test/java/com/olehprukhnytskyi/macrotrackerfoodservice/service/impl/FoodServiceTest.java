@@ -9,7 +9,6 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.anyList;
 import static org.mockito.BDDMockito.anyString;
-import static org.mockito.BDDMockito.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.never;
 import static org.mockito.BDDMockito.times;
@@ -20,7 +19,6 @@ import static org.mockito.Mockito.doNothing;
 
 import com.mongodb.DuplicateKeyException;
 import com.olehprukhnytskyi.exception.InternalServerException;
-import com.olehprukhnytskyi.exception.NotFoundException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dao.FoodSearchDao;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodListCacheWrapper;
@@ -301,45 +299,6 @@ class FoodServiceTest {
         // Then
         assertEquals(2, result.size());
         assertEquals("Apple", result.get(0));
-    }
-
-    @Test
-    @DisplayName("When food not found for patch, should throw NotFoundException")
-    void patch_whenFoodNotFound_shouldThrowNotFoundException() {
-        // When & Then
-        NotFoundException ex = assertThrows(NotFoundException.class,
-                () -> foodService.patch("123", new FoodPatchRequestDto(), 1L));
-
-        assertTrue(ex.getMessage().contains("Food not found"));
-    }
-
-    @Test
-    @DisplayName("When food exists, should update and return DTO")
-    void patch_whenFoodExists_shouldUpdateAndReturnDto() {
-        // Given
-        String id = "123";
-        Food existing = new Food();
-        existing.setId(id);
-
-        Food saved = new Food();
-        saved.setId(id);
-        saved.setProductName("Updated");
-
-        FoodResponseDto expected = new FoodResponseDto();
-        expected.setId(id);
-
-        Long userId = 1L;
-
-        given(foodRepository.findByIdAndUserId(id, userId)).willReturn(Optional.of(existing));
-        given(foodRepository.save(existing)).willReturn(saved);
-        given(foodMapper.toDto(saved)).willReturn(expected);
-
-        // When
-        FoodResponseDto result = foodService.patch(id, new FoodPatchRequestDto(), userId);
-
-        // Then
-        assertEquals(id, result.getId());
-        verify(foodMapper).updateFoodFromPatchDto(any(), eq(existing));
     }
 
     @Test

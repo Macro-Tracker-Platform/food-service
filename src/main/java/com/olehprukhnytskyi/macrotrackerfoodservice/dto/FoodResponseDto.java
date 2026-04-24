@@ -39,12 +39,21 @@ public class FoodResponseDto {
     @Schema(description = "Nutrition information")
     private NutrimentsDto nutriments;
 
+    @Schema(description = "List of supported measurement units",
+            example = "[\"GRAMS\", \"PIECES\"]")
     @Builder.Default
     private List<UnitType> availableUnits = new ArrayList<>();
 
+    @Schema(
+            description = "ID of the original food item if this is a customized copy",
+            example = "5901234123457")
     private String originalFoodId;
 
+    @Schema(description = "Current moderation status of the product",
+            example = "PENDING_REVIEW")
     private String moderationStatus;
 
+    @Schema(description = "Indicates whether the product data has been verified"
+                          + " by an administrator")
     private boolean verifiedByAdmin;
 }

@@ -16,7 +16,6 @@ import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.util.ObjectBuilder;
 import com.olehprukhnytskyi.macrotrackerfoodservice.config.AbstractIntegrationTest;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodListCacheWrapper;
-import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.FoodRepository;
@@ -25,6 +24,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.service.S3StorageService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.util.CacheConstants;
 import com.olehprukhnytskyi.model.OutboxEvent;
 import com.olehprukhnytskyi.repository.jpa.OutboxRepository;
+import com.olehprukhnytskyi.util.ModerationStatus;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -92,27 +92,30 @@ class FoodServiceCacheTest extends AbstractIntegrationTest {
 
     @Test
     @DisplayName("Should use cache on second call")
-    void findById_shouldUseCacheOnSecondCall() {
+    void findPersonalizedById_shouldUseCacheOnSecondCall() {
         // Given
+        Long userId = 1L;
         String id = "11111111";
         Food entity = Food.builder()
                 .id(id)
                 .code(id)
-                .userId(1L)
+                .userId(userId)
                 .productName("Rice")
+                .verifiedByAdmin(true)
+                .moderationStatus(ModerationStatus.APPROVED)
                 .build();
 
         when(foodRepository.findById(id)).thenReturn(Optional.of(entity));
 
         // When
-        FoodResponseDto dto1 = foodService.findById(id);
+        FoodResponseDto dto1 = foodService.findPersonalizedById(id, userId);
         verify(foodRepository, times(1)).findById(id);
 
         Object cached1 = redisTemplate.opsForValue().get(CacheConstants.FOOD_DATA + "::" + id);
         assertThat(cached1).isNotNull();
         assertThat(((FoodResponseDto) cached1).getId()).isEqualTo(id);
 
-        FoodResponseDto dto2 = foodService.findById(id);
+        FoodResponseDto dto2 = foodService.findPersonalizedById(id, userId);
         verify(foodRepository, times(1)).findById(id);
 
         // Then
@@ -161,38 +164,6 @@ class FoodServiceCacheTest extends AbstractIntegrationTest {
         assertThat(cachedList).containsExactlyInAnyOrderElementsOf(productNames);
 
         assertThat(second).containsExactlyInAnyOrderElementsOf(productNames);
-    }
-
-    @Test
-    @DisplayName("Should update cache after patching")
-    void patch_shouldUpdateCache() {
-        // Given
-        String id = "11111111";
-        Long userId = 1L;
-        Food entity = Food.builder()
-                .id(id)
-                .code(id)
-                .userId(userId)
-                .productName("Old name")
-                .build();
-
-        when(foodRepository.findById(id)).thenReturn(Optional.of(entity));
-        when(foodRepository.findByIdAndUserId(id, userId)).thenReturn(Optional.of(entity));
-        when(foodRepository.save(any(Food.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        // When
-        FoodResponseDto before = foodService.findById(id);
-        assertThat(before.getProductName()).isEqualTo("Old name");
-        foodService.patch(id, FoodPatchRequestDto.builder()
-                .productName("New name")
-                .build(), userId);
-        foodService.findById(id);
-
-        // Then
-        Object cached = redisTemplate.opsForValue().get(CacheConstants.FOOD_DATA + "::" + id);
-        assertThat(cached).isNotNull();
-        assertThat(((FoodResponseDto) cached).getProductName()).isEqualTo("New name");
     }
 
     @Test

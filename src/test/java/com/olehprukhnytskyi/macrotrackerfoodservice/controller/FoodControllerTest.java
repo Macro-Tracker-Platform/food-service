@@ -16,7 +16,6 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -37,7 +36,6 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsDto;
-import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsPatchDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Nutriments;
@@ -227,7 +225,8 @@ class FoodControllerTest extends AbstractIntegrationTest {
 
         // When
         MvcResult mvcResult = mockMvc.perform(
-                get("/api/foods/" + foodId))
+                get("/api/foods/" + foodId)
+                        .header(CustomHeaders.X_USER_ID, 1L))
                 .andExpect(status().isOk())
                 .andReturn();
 
@@ -541,90 +540,6 @@ class FoodControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("When patch is successful, should return 200 and updated DTO")
-    void patch_whenSuccessful_shouldReturn200AndUpdatedDto() throws Exception {
-        // Given
-        String id = "11111111";
-        Long userId = 1L;
-
-        FoodRequestDto requestDto = FoodRequestDto.builder()
-                .productName("New product name")
-                .build();
-        String requestJson = objectMapper.writeValueAsString(requestDto);
-
-        FoodResponseDto responseDto = FoodResponseDto.builder()
-                .id("11111111")
-                .code("11111111")
-                .productName("New product name")
-                .userId(userId)
-                .moderationStatus(ModerationStatus.NONE.name())
-                .nutriments(NutrimentsDto.builder()
-                        .caloriesPer100(BigDecimal.valueOf(100))
-                        .carbohydratesPer100(BigDecimal.valueOf(25))
-                        .fatPer100(BigDecimal.valueOf(5))
-                        .proteinPer100(BigDecimal.valueOf(15))
-                        .build())
-                .availableUnits(List.of(UnitType.GRAMS))
-                .build();
-        String expected = objectMapper.writeValueAsString(responseDto);
-
-        // When & Then
-        mockMvc.perform(
-                patch("/api/foods/{id}", id)
-                        .header(CustomHeaders.X_USER_ID, userId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestJson)
-                )
-                .andExpect(status().isOk())
-                .andExpect(content().json(expected));
-    }
-
-    @Test
-    @DisplayName("When patch request has validation errors, should throw validation exception")
-    void patch_whenValidationError_shouldThrowValidationException() throws Exception {
-        // Given
-        String id = "11111111";
-
-        NutrimentsPatchDto nutrimentsPatchDto = NutrimentsPatchDto.builder()
-                .caloriesPer100(BigDecimal.valueOf(250))
-                .fatPer100(BigDecimal.valueOf(10))
-                .proteinPer100(BigDecimal.valueOf(15))
-                .carbohydratesPer100(BigDecimal.valueOf(-100))
-                .build();
-
-        FoodPatchRequestDto requestDto = FoodPatchRequestDto.builder()
-                .nutriments(nutrimentsPatchDto)
-                .build();
-
-        String requestJson = objectMapper.writeValueAsString(requestDto);
-
-        BaseErrorCode errorCode = CommonErrorCode.VALIDATION_ERROR;
-        ProblemDetails problemDetails = ProblemDetails.builder()
-                .title(errorCode.getTitle())
-                .status(errorCode.getStatus())
-                .detail("Validation failed for one or more parameters")
-                .traceId(MDC.get("traceId"))
-                .traceId("N/A")
-                .code(errorCode.getCode())
-                .invalidParams(List.of(new ProblemDetails.InvalidParam(
-                        "nutriments.carbohydratesPer100",
-                        "must be greater than or equal to 0.0"
-                )))
-                .build();
-
-        String expected = objectMapper.writeValueAsString(problemDetails);
-
-        // When & Then
-        mockMvc.perform(
-                patch("/api/foods/{id}", id)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestJson)
-                )
-                .andExpect(status().isBadRequest())
-                .andExpect(content().json(expected));
-    }
-
-    @Test
     @DisplayName("When valid request, should return delete food")
     void deleteFood_whenValidRequest_shouldDeleteFood() throws Exception {
         // Given
@@ -655,13 +570,21 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 .productName("Customized Apple")
                 .build();
 
-        FoodResponseDto responseDto = FoodResponseDto.builder()
-                .id("new-custom-id")
+        FoodResponseDto expected = FoodResponseDto.builder()
                 .productName("Customized Apple")
+                .id("2000000000001")
+                .code("2000000000001")
+                .userId(userId)
+                .availableUnits(List.of(UnitType.GRAMS))
+                .moderationStatus(ModerationStatus.PENDING_REVIEW.name())
+                .originalFoodId(originalId)
+                .nutriments(NutrimentsDto.builder()
+                        .caloriesPer100(BigDecimal.valueOf(100))
+                        .carbohydratesPer100(BigDecimal.valueOf(25))
+                        .fatPer100(BigDecimal.valueOf(5))
+                        .proteinPer100(BigDecimal.valueOf(15))
+                        .build())
                 .build();
-
-        doReturn(responseDto).when(foodService).customizeAndSubmitForReview(eq(originalId),
-                any(FoodPatchRequestDto.class), eq(userId));
 
         // When & Then
         mockMvc.perform(
@@ -671,7 +594,7 @@ class FoodControllerTest extends AbstractIntegrationTest {
                                 .content(objectMapper.writeValueAsString(patchDto))
                 )
                 .andExpect(status().isCreated())
-                .andExpect(content().json(objectMapper.writeValueAsString(responseDto)));
+                .andExpect(content().json(objectMapper.writeValueAsString(expected)));
     }
 
     @Test
