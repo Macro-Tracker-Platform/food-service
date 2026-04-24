@@ -24,6 +24,7 @@ import com.olehprukhnytskyi.repository.jpa.OutboxRepository;
 import com.olehprukhnytskyi.util.ModerationStatus;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -245,7 +246,7 @@ public class FoodService {
                 .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
                         "Food not found with id: " + id));
         if (sourceFood.getOriginalFoodId() == null
-                && sourceFood.getUserId().equals(userId)
+                && Objects.equals(sourceFood.getUserId(), userId)
                 && sourceFood.getModerationStatus() == ModerationStatus.PENDING_REVIEW) {
             log.info("Food id={} is already a pending original owned by user={}."
                      + " Updating directly.", id, userId);
