@@ -19,6 +19,7 @@ import static org.mockito.Mockito.doNothing;
 
 import com.mongodb.DuplicateKeyException;
 import com.olehprukhnytskyi.exception.InternalServerException;
+import com.olehprukhnytskyi.exception.NotFoundException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dao.FoodSearchDao;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodListCacheWrapper;
@@ -164,6 +165,28 @@ class FoodServiceTest {
     }
 
     @Test
+    @DisplayName("When food is not public, should skip moderation and keep it private")
+    void createFoodWithImages_whenFoodIsNotPublic_shouldSaveAsRejected() {
+        // Given
+        foodRequestDto.setCode(null);
+        foodRequestDto.setPublic(false);
+
+        given(foodMapper.toModel(any())).willReturn(food);
+        given(foodCodeGenerator.resolveCode(any())).willReturn("generated_code");
+        given(foodRepository.save(any())).willReturn(food);
+        given(foodMapper.toDto((Food) any())).willReturn(new FoodResponseDto());
+
+        // When
+        FoodResponseDto result = foodService.createFoodWithImages(foodRequestDto, null, 1L);
+
+        // Then
+        assertNotNull(result);
+        assertEquals(ModerationStatus.REJECTED, food.getModerationStatus());
+        assertEquals(1L, food.getUserId());
+        verify(foodRepository).save(food);
+    }
+
+    @Test
     @DisplayName("When food with same code exists but different data, "
                  + "should redirect to customize flow")
     void createFoodWithImages_whenSameCodeExistsButDifferentData_shouldRedirectToCustomize() {
@@ -175,6 +198,8 @@ class FoodServiceTest {
         existingFood.setId(existingCode);
         existingFood.setProductName("other_name");
         existingFood.setUserId(99L);
+        existingFood.setModerationStatus(ModerationStatus.APPROVED);
+        existingFood.setVerifiedByAdmin(true);
 
         Food customizedFood = new Food();
         customizedFood.setId("custom-id-123");
@@ -273,6 +298,57 @@ class FoodServiceTest {
     }
 
     @Test
+    @DisplayName("When user fetches another user's private food, should not expose it")
+    void findPersonalizedById_whenPrivateFoodBelongsToOtherUser_shouldThrowNotFound() {
+        // Given
+        FoodResponseDto privateFood = FoodResponseDto.builder()
+                .id("private-food")
+                .userId(2L)
+                .moderationStatus(ModerationStatus.REJECTED.name())
+                .verifiedByAdmin(false)
+                .build();
+        foodService.setSelf(foodService);
+
+        given(foodRepository.findById("private-food")).willReturn(Optional.of(food));
+        given(foodMapper.toDto(food)).willReturn(privateFood);
+
+        // When & Then
+        assertThrows(NotFoundException.class,
+                () -> foodService.findPersonalizedById("private-food", 1L));
+    }
+
+    @Test
+    @DisplayName("When batch contains another user's private food, should filter it out")
+    void findAllByIds_whenPrivateFoodBelongsToOtherUser_shouldFilterItOut() {
+        // Given
+        Food privateFood = Food.builder()
+                .id("private-food")
+                .userId(2L)
+                .moderationStatus(ModerationStatus.REJECTED)
+                .verifiedByAdmin(false)
+                .build();
+        Food ownFood = Food.builder()
+                .id("own-food")
+                .userId(1L)
+                .moderationStatus(ModerationStatus.REJECTED)
+                .verifiedByAdmin(false)
+                .build();
+        FoodResponseDto ownDto = FoodResponseDto.builder().id("own-food").build();
+
+        given(foodRepository.findByOriginalFoodIdInAndUserId(any(), any()))
+                .willReturn(List.of());
+        given(foodRepository.findAllById(any())).willReturn(List.of(privateFood, ownFood));
+        given(foodMapper.toDto(ownFood)).willReturn(ownDto);
+
+        // When
+        List<FoodResponseDto> result = foodService.findAllByIds(
+                List.of("private-food", "own-food"), 1L);
+
+        // Then
+        assertEquals(List.of(ownDto), result);
+    }
+
+    @Test
     @DisplayName("When query is null, should return an empty list")
     void getSearchSuggestions_whenQueryIsNull_shouldReturnEmptyList() {
         List<String> result = foodService.getSearchSuggestions(null);
@@ -324,6 +400,8 @@ class FoodServiceTest {
         Food original = new Food();
         original.setId(originalId);
         original.setUserId(99L);
+        original.setModerationStatus(ModerationStatus.APPROVED);
+        original.setVerifiedByAdmin(true);
 
         Food customized = new Food();
         Food saved = new Food();
@@ -349,6 +427,26 @@ class FoodServiceTest {
         assertEquals("newCode123", customized.getId());
         assertEquals("newCode123", customized.getCode());
         verify(foodRepository).save(customized);
+    }
+
+    @Test
+    @DisplayName("When customize source is another user's private food, should not expose it")
+    void customizeAndSubmitForReview_whenSourceIsPrivateForOtherUser_shouldThrowNotFound() {
+        // Given
+        String privateFoodId = "private-food";
+        Food privateFood = Food.builder()
+                .id(privateFoodId)
+                .userId(2L)
+                .moderationStatus(ModerationStatus.REJECTED)
+                .verifiedByAdmin(false)
+                .build();
+
+        given(foodRepository.findById(privateFoodId)).willReturn(Optional.of(privateFood));
+
+        // When & Then
+        assertThrows(NotFoundException.class,
+                () -> foodService.customizeAndSubmitForReview(
+                        privateFoodId, new FoodPatchRequestDto(), 1L));
     }
 
     @Test

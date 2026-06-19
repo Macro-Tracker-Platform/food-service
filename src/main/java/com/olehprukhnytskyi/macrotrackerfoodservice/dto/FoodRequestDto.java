@@ -48,4 +48,10 @@ public class FoodRequestDto {
     @Valid
     @NotNull
     private NutrimentsDto nutriments;
+
+    @Schema(description = "Whether the product should be submitted for public moderation",
+            example = "true",
+            defaultValue = "true")
+    @Builder.Default
+    private boolean isPublic = true;
 }

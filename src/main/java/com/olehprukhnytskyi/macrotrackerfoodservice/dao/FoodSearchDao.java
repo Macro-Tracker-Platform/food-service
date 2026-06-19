@@ -144,6 +144,14 @@ public class FoodSearchDao {
 
     private Query buildSuggestionQuery(String normalized) {
         return Query.of(q -> q.bool(b -> b
+                .filter(f -> f.bool(filterBool -> {
+                    filterBool.should(s -> s.match(m -> m.field("moderation_status")
+                            .query("APPROVED")));
+                    filterBool.should(s -> s.bool(noUserId -> noUserId
+                            .mustNot(mn -> mn.exists(e -> e.field("user_id")))));
+                    filterBool.minimumShouldMatch("1");
+                    return filterBool;
+                }))
                 .should(s1 -> s1.matchPhrase(mp -> mp
                         .field("product_name")
                         .query(normalized)

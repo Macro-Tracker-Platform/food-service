@@ -75,18 +75,25 @@ public class FoodService {
                                                 MultipartFile image, Long userId) {
         log.info("Creating new food item for userId={}", userId);
         try {
+            boolean forceInternalCode = false;
             if (dto.getCode() != null) {
                 Optional<Food> existing = foodRepository.findById(dto.getCode());
                 if (existing.isPresent()) {
-                    if (isSameProduct(existing.get(), dto)) {
-                        log.info("Returning existing food id={}", existing.get().getId());
-                        return foodMapper.toDto(existing.get());
+                    Food existingFood = existing.get();
+                    if (!canAccessFood(existingFood, userId)) {
+                        log.info("Food with code={} exists but is not visible for userId={}. "
+                                 + "Creating a separate private item.",
+                                dto.getCode(), userId);
+                        forceInternalCode = true;
+                    } else if (isSameProduct(existingFood, dto)) {
+                        log.info("Returning existing food id={}", existingFood.getId());
+                        return foodMapper.toDto(existingFood);
                     } else {
                         log.info("Food exists with different data. "
                                  + "Redirecting to customize flow for userId={}", userId);
                         FoodPatchRequestDto patchDto = foodMapper.toPatchDto(dto);
                         FoodResponseDto customizedResponse = customizeAndSubmitForReview(
-                                existing.get().getId(), patchDto, userId);
+                                existingFood.getId(), patchDto, userId);
                         if (image != null && !image.isEmpty()) {
                             String tempImageKey = foodAssetService.uploadToTemp(image);
                             try {
@@ -111,7 +118,7 @@ public class FoodService {
             if (image != null && !image.isEmpty()) {
                 tempImageKey = foodAssetService.uploadToTemp(image);
             }
-            Food food = prepareNewFood(dto, userId);
+            Food food = prepareNewFood(dto, userId, forceInternalCode);
             Food savedFood = retryTemplate.execute(context -> foodRepository.save(food));
             if (tempImageKey != null) {
                 try {
@@ -144,7 +151,12 @@ public class FoodService {
                 return self.findById(customCopy.get().getId());
             }
         }
-        return self.findById(barcodeOrId);
+        FoodResponseDto food = self.findById(barcodeOrId);
+        if (!canAccessFood(food, userId)) {
+            throw new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
+                    "Food not found with id: " + barcodeOrId);
+        }
+        return food;
     }
 
     public List<FoodResponseDto> findAllByUserId(Long userId, int offset, int limit) {
@@ -251,6 +263,7 @@ public class FoodService {
                 .toList();
         List<Food> foods = foodRepository.findAllById(finalIdsToFetch);
         return foods.stream()
+                .filter(food -> canAccessFood(food, userId))
                 .map(foodMapper::toDto)
                 .toList();
     }
@@ -262,6 +275,10 @@ public class FoodService {
         Food sourceFood = foodRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
                         "Food not found with id: " + id));
+        if (!canAccessFood(sourceFood, userId)) {
+            throw new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
+                    "Food not found with id: " + id);
+        }
         if (sourceFood.getOriginalFoodId() == null
                 && Objects.equals(sourceFood.getUserId(), userId)
                 && sourceFood.getModerationStatus() == ModerationStatus.PENDING_REVIEW) {
@@ -347,15 +364,33 @@ public class FoodService {
                 .toList();
     }
 
-    private Food prepareNewFood(FoodRequestDto request, Long userId) {
+    private Food prepareNewFood(FoodRequestDto request, Long userId, boolean forceInternalCode) {
         Food food = foodMapper.toModel(request);
-        String code = foodCodeGenerator.resolveCode(request);
+        String code = forceInternalCode
+                ? foodCodeGenerator.resolveCode(new FoodRequestDto())
+                : foodCodeGenerator.resolveCode(request);
         food.setUserId(userId);
         food.setId(code);
         food.setCode(code);
-        food.setModerationStatus(ModerationStatus.PENDING_REVIEW);
+        food.setModerationStatus(request.isPublic()
+                ? ModerationStatus.PENDING_REVIEW
+                : ModerationStatus.REJECTED);
         food.setVerifiedByAdmin(false);
         return food;
+    }
+
+    private boolean canAccessFood(Food food, Long userId) {
+        return Objects.equals(food.getUserId(), userId)
+                || food.getUserId() == null
+                || food.isVerifiedByAdmin()
+                || food.getModerationStatus() == ModerationStatus.APPROVED;
+    }
+
+    private boolean canAccessFood(FoodResponseDto food, Long userId) {
+        return Objects.equals(food.getUserId(), userId)
+                || food.getUserId() == null
+                || food.isVerifiedByAdmin()
+                || ModerationStatus.APPROVED.name().equals(food.getModerationStatus());
     }
 
     private boolean isSameProduct(Food existingFood, FoodRequestDto newRequest) {
