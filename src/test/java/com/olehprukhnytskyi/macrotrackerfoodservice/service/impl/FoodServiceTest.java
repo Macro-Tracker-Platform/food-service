@@ -1,6 +1,7 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -31,7 +32,9 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.FoodMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Nutriments;
+import com.olehprukhnytskyi.macrotrackerfoodservice.model.UserFoodFavorite;
 import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.FoodRepository;
+import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.UserFoodFavoriteRepository;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodAssetService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodCodeGenerator;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
@@ -56,11 +59,12 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.retry.support.RetryTemplate;
 
-@SuppressWarnings("unchecked")
 @ExtendWith(MockitoExtension.class)
 class FoodServiceTest {
     @Mock
     private FoodRepository foodRepository;
+    @Mock
+    private UserFoodFavoriteRepository userFoodFavoriteRepository;
     @Mock
     private OutboxRepository outboxRepository;
     @Mock
@@ -91,6 +95,8 @@ class FoodServiceTest {
 
     @BeforeEach
     void setUp() {
+        foodService.setSelf(foodService);
+
         NutrimentsDto nutrimentsDto = new NutrimentsDto();
         nutrimentsDto.setCaloriesPer100(BigDecimal.ONE);
         nutrimentsDto.setCarbohydratesPer100(BigDecimal.ONE);
@@ -281,7 +287,7 @@ class FoodServiceTest {
         // Then
         assertNotNull(result.getItems());
         assertEquals(1, result.getItems().size());
-        assertEquals("123", result.getItems().get(0).getId());
+        assertEquals("123", result.getItems().getFirst().getId());
     }
 
     @Test
@@ -349,6 +355,68 @@ class FoodServiceTest {
     }
 
     @Test
+    @DisplayName("When favorite is enabled, should save user-specific favorite and return DTO")
+    void updateFavorite_whenEnabled_shouldSaveFavoriteAndReturnDto() {
+        // Given
+        Long userId = 1L;
+        String foodId = "banana";
+        Food food = Food.builder()
+                .id(foodId)
+                .userId(null)
+                .moderationStatus(ModerationStatus.APPROVED)
+                .verifiedByAdmin(true)
+                .build();
+        FoodResponseDto dto = FoodResponseDto.builder()
+                .id(foodId)
+                .moderationStatus(ModerationStatus.APPROVED.name())
+                .verifiedByAdmin(true)
+                .build();
+
+        given(foodRepository.findByOriginalFoodIdAndUserId(foodId, userId))
+                .willReturn(Optional.empty());
+        given(foodRepository.findById(foodId)).willReturn(Optional.of(food));
+        given(foodMapper.toDto(food)).willReturn(dto);
+
+        // When
+        FoodResponseDto result = foodService.updateFavorite(foodId, userId, true);
+
+        // Then
+        assertTrue(result.isFavorite());
+        verify(userFoodFavoriteRepository).save(any(UserFoodFavorite.class));
+    }
+
+    @Test
+    @DisplayName("When favorite is disabled, should delete user-specific favorite and return DTO")
+    void updateFavorite_whenDisabled_shouldDeleteFavoriteAndReturnDto() {
+        // Given
+        Long userId = 1L;
+        String foodId = "banana";
+        Food food = Food.builder()
+                .id(foodId)
+                .userId(null)
+                .moderationStatus(ModerationStatus.APPROVED)
+                .verifiedByAdmin(true)
+                .build();
+        FoodResponseDto dto = FoodResponseDto.builder()
+                .id(foodId)
+                .moderationStatus(ModerationStatus.APPROVED.name())
+                .verifiedByAdmin(true)
+                .build();
+
+        given(foodRepository.findByOriginalFoodIdAndUserId(foodId, userId))
+                .willReturn(Optional.empty());
+        given(foodRepository.findById(foodId)).willReturn(Optional.of(food));
+        given(foodMapper.toDto(food)).willReturn(dto);
+
+        // When
+        FoodResponseDto result = foodService.updateFavorite(foodId, userId, false);
+
+        // Then
+        assertFalse(result.isFavorite());
+        verify(userFoodFavoriteRepository).deleteByUserIdAndFoodId(userId, foodId);
+    }
+
+    @Test
     @DisplayName("When query is null, should return an empty list")
     void getSearchSuggestions_whenQueryIsNull_shouldReturnEmptyList() {
         List<String> result = foodService.getSearchSuggestions(null);
@@ -374,7 +442,7 @@ class FoodServiceTest {
 
         // Then
         assertEquals(2, result.size());
-        assertEquals("Apple", result.get(0));
+        assertEquals("Apple", result.getFirst());
     }
 
     @Test
@@ -553,6 +621,6 @@ class FoodServiceTest {
 
         // Then
         assertEquals(1, result.size());
-        assertEquals(dto, result.get(0));
+        assertEquals(dto, result.getFirst());
     }
 }

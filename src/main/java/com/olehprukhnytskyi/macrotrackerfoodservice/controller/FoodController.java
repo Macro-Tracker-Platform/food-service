@@ -3,6 +3,7 @@ package com.olehprukhnytskyi.macrotrackerfoodservice.controller;
 import com.olehprukhnytskyi.annotation.Idempotent;
 import com.olehprukhnytskyi.dto.PagedResponse;
 import com.olehprukhnytskyi.dto.Pagination;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodFavoriteRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
@@ -22,6 +23,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -98,6 +100,21 @@ public class FoodController {
         log.debug("Batch retrieval completed. Found {} items out of requested {}",
                 result.size(), foodIds.size());
         return ResponseEntity.ok(result);
+    }
+
+    @Operation(
+            summary = "Update food favorite state",
+            description = "Mark or unmark a food product as favorite for the current user"
+    )
+    @PatchMapping("/{id}/favorite")
+    public ResponseEntity<FoodResponseDto> updateFavorite(
+            @RequestHeader(value = CustomHeaders.X_USER_ID) Long userId,
+            @PathVariable String id,
+            @RequestBody @Valid FoodFavoriteRequestDto requestDto) {
+        log.info("Updating favorite for food id={} userId={}", id, userId);
+        FoodResponseDto food = foodService.updateFavorite(
+                id, userId, requestDto.getFavorite());
+        return ResponseEntity.ok(food);
     }
 
     @Operation(

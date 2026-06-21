@@ -15,24 +15,28 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.event.FoodCreatedEvent;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.FoodMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
+import com.olehprukhnytskyi.macrotrackerfoodservice.model.UserFoodFavorite;
 import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.FoodRepository;
+import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.UserFoodFavoriteRepository;
 import com.olehprukhnytskyi.macrotrackerfoodservice.util.CacheConstants;
 import com.olehprukhnytskyi.model.OutboxEvent;
 import com.olehprukhnytskyi.repository.jpa.OutboxRepository;
 import com.olehprukhnytskyi.util.ModerationStatus;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
@@ -50,6 +54,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class FoodService {
     private final NutrimentsMapper nutrimentsMapper;
     private final FoodRepository foodRepository;
+    private final UserFoodFavoriteRepository userFoodFavoriteRepository;
     private final FoodMapper foodMapper;
     private final OutboxRepository outboxRepository;
     private final FoodAssetService foodAssetService;
@@ -66,11 +71,6 @@ public class FoodService {
     }
 
     @Transactional
-    @CachePut(
-            value = CacheConstants.FOOD_DATA,
-            key = "#result.id",
-            unless = "#result == null || !#result.verifiedByAdmin"
-    )
     public FoodResponseDto createFoodWithImages(FoodRequestDto dto,
                                                 MultipartFile image, Long userId) {
         log.info("Creating new food item for userId={}", userId);
@@ -87,7 +87,7 @@ public class FoodService {
                         forceInternalCode = true;
                     } else if (isSameProduct(existingFood, dto)) {
                         log.info("Returning existing food id={}", existingFood.getId());
-                        return foodMapper.toDto(existingFood);
+                        return withFavorite(foodMapper.toDto(existingFood), userId);
                     } else {
                         log.info("Food exists with different data. "
                                  + "Redirecting to customize flow for userId={}", userId);
@@ -109,7 +109,7 @@ public class FoodService {
                                         customizedResponse.getId(), e);
                             }
                         }
-                        return customizedResponse;
+                        return withFavorite(customizedResponse, userId);
                     }
                 }
             }
@@ -133,7 +133,7 @@ public class FoodService {
             }
             eventPublisher.publishEvent(new FoodCreatedEvent(savedFood.getId(), userId));
             log.info("Food created successfully userId={} foodId={}", userId, savedFood.getId());
-            return foodMapper.toDto(savedFood);
+            return withFavorite(foodMapper.toDto(savedFood), userId);
         } catch (BadRequestException e) {
             throw e;
         } catch (Exception e) {
@@ -148,15 +148,15 @@ public class FoodService {
             Optional<Food> customCopy = foodRepository
                     .findByOriginalFoodIdAndUserId(barcodeOrId, userId);
             if (customCopy.isPresent()) {
-                return self.findById(customCopy.get().getId());
+                return withFavorite(findByIdUsingProxy(customCopy.get().getId()), userId);
             }
         }
-        FoodResponseDto food = self.findById(barcodeOrId);
+        FoodResponseDto food = findByIdUsingProxy(barcodeOrId);
         if (!canAccessFood(food, userId)) {
             throw new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
                     "Food not found with id: " + barcodeOrId);
         }
-        return food;
+        return withFavorite(food, userId);
     }
 
     public List<FoodResponseDto> findAllByUserId(Long userId, int offset, int limit) {
@@ -165,7 +165,10 @@ public class FoodService {
                     "Offset must be a multiple of limit");
         }
         Pageable pageable = PageRequest.of(offset / limit, limit);
-        List<String> excludedIds = foodRepository.findOriginalIdsByUserId(userId).stream()
+        List<OriginalIdOnly> originalIds = Optional
+                .ofNullable(foodRepository.findOriginalIdsByUserId(userId))
+                .orElse(Collections.emptyList());
+        List<String> excludedIds = originalIds.stream()
                 .map(OriginalIdOnly::getOriginalFoodId)
                 .toList();
         Page<Food> foodsPage;
@@ -174,9 +177,18 @@ public class FoodService {
         } else {
             foodsPage = foodRepository.findAllByUserIdAndIdNotIn(userId, excludedIds, pageable);
         }
-        return foodsPage.stream()
+        List<FoodResponseDto> foods = foodsPage.stream()
                 .map(foodMapper::toDto)
                 .toList();
+        return attachFavorites(foods, userId);
+    }
+
+    public FoodListCacheWrapper findByQuery(String query, Long userId, int offset, int limit) {
+        FoodListCacheWrapper searchResults = self.findByQueryCached(query, userId, offset, limit);
+        List<FoodResponseDto> items = searchResults == null
+                ? Collections.emptyList()
+                : searchResults.getItems();
+        return new FoodListCacheWrapper(attachFavorites(items, userId));
     }
 
     @Cacheable(
@@ -186,11 +198,15 @@ public class FoodService {
                   + " + (#userId != null ? #userId : 'anonymous')).getBytes())",
             unless = "#result == null || #result.items.isEmpty()"
     )
-    public FoodListCacheWrapper findByQuery(String query, Long userId, int offset, int limit) {
+    public FoodListCacheWrapper findByQueryCached(String query, Long userId,
+                                                  int offset, int limit) {
         log.debug("Searching foods query='{}' offset={} limit={}", query, offset, limit);
         List<String> excludedIds = Collections.emptyList();
         if (userId != null) {
-            excludedIds = foodRepository.findOriginalIdsByUserId(userId).stream()
+            List<OriginalIdOnly> originalIds = Optional
+                    .ofNullable(foodRepository.findOriginalIdsByUserId(userId))
+                    .orElse(Collections.emptyList());
+            excludedIds = originalIds.stream()
                     .map(OriginalIdOnly::getOriginalFoodId)
                     .toList();
         }
@@ -227,6 +243,7 @@ public class FoodService {
     public void deleteByIdAndUserId(String id, Long userId) {
         log.info("Deleting food id={} userId={}", id, userId);
         foodRepository.deleteByIdAndUserId(id, userId);
+        userFoodFavoriteRepository.deleteByFoodId(id);
         outboxRepository.save(OutboxEvent.builder()
                 .aggregateType("FOOD")
                 .aggregateId(id)
@@ -240,6 +257,7 @@ public class FoodService {
     public void deleteById(String id) {
         log.info("Deleting food id={}", id);
         foodRepository.deleteById(id);
+        userFoodFavoriteRepository.deleteByFoodId(id);
         outboxRepository.save(OutboxEvent.builder()
                 .aggregateType("FOOD")
                 .aggregateId(id)
@@ -254,7 +272,8 @@ public class FoodService {
         }
         Map<String, String> replacements = new HashMap<>();
         if (userId != null) {
-            foodRepository.findByOriginalFoodIdInAndUserId(foodIds, userId)
+            Optional.ofNullable(foodRepository.findByOriginalFoodIdInAndUserId(foodIds, userId))
+                    .orElse(Collections.emptyList())
                     .forEach(copy -> replacements.put(copy.getOriginalFoodId(), copy.getId()));
         }
         List<String> finalIdsToFetch = foodIds.stream()
@@ -262,10 +281,28 @@ public class FoodService {
                 .distinct()
                 .toList();
         List<Food> foods = foodRepository.findAllById(finalIdsToFetch);
-        return foods.stream()
+        List<FoodResponseDto> response = foods.stream()
                 .filter(food -> canAccessFood(food, userId))
                 .map(foodMapper::toDto)
                 .toList();
+        return attachFavorites(response, userId);
+    }
+
+    @Transactional
+    public FoodResponseDto updateFavorite(String id, Long userId, boolean favorite) {
+        FoodResponseDto food = findPersonalizedById(id, userId);
+        if (favorite) {
+            if (!userFoodFavoriteRepository.existsByUserIdAndFoodId(userId, food.getId())) {
+                userFoodFavoriteRepository.save(UserFoodFavorite.builder()
+                        .userId(userId)
+                        .foodId(food.getId())
+                        .build());
+            }
+        } else {
+            userFoodFavoriteRepository.deleteByUserIdAndFoodId(userId, food.getId());
+        }
+        food.setFavorite(favorite);
+        return food;
     }
 
     @Transactional
@@ -285,7 +322,7 @@ public class FoodService {
             log.info("Food id={} is already a pending original owned by user={}."
                      + " Updating directly.", id, userId);
             foodMapper.updateFoodFromPatchDto(patchDto, sourceFood);
-            return foodMapper.toDto(foodRepository.save(sourceFood));
+            return withFavorite(foodMapper.toDto(foodRepository.save(sourceFood)), userId);
         }
         String originalId = sourceFood.getOriginalFoodId() != null
                 ? sourceFood.getOriginalFoodId()
@@ -309,7 +346,7 @@ public class FoodService {
             foodToProcess.setCode(newCode);
             foodToProcess.setModerationStatus(ModerationStatus.PENDING_REVIEW);
         }
-        return foodMapper.toDto(foodRepository.save(foodToProcess));
+        return withFavorite(foodMapper.toDto(foodRepository.save(foodToProcess)), userId);
     }
 
     @Transactional
@@ -401,8 +438,81 @@ public class FoodService {
                         nutrimentsMapper.toModel(newRequest.getNutriments()));
     }
 
+    private FoodResponseDto withFavorite(FoodResponseDto food, Long userId) {
+        FoodResponseDto copy = copyFoodResponse(food);
+        if (copy == null || userId == null || copy.getId() == null) {
+            return copy;
+        }
+        copy.setFavorite(userFoodFavoriteRepository.existsByUserIdAndFoodId(
+                userId, copy.getId()));
+        return copy;
+    }
+
+    private FoodResponseDto findByIdUsingProxy(String id) {
+        return self.findById(id);
+    }
+
+    private List<FoodResponseDto> attachFavorites(List<FoodResponseDto> foods, Long userId) {
+        if (foods == null || foods.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<FoodResponseDto> copies = foods.stream()
+                .map(this::copyFoodResponse)
+                .toList();
+        if (userId == null) {
+            return copies;
+        }
+        List<String> foodIds = copies.stream()
+                .map(FoodResponseDto::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        Set<String> favoriteFoodIds = loadFavoriteFoodIds(userId, foodIds);
+        copies.forEach(food -> food.setFavorite(favoriteFoodIds.contains(food.getId())));
+        return copies;
+    }
+
+    private Set<String> loadFavoriteFoodIds(Long userId, List<String> foodIds) {
+        if (foodIds.isEmpty()) {
+            return Collections.emptySet();
+        }
+        List<UserFoodFavorite> favorites = userFoodFavoriteRepository
+                .findAllByUserIdAndFoodIdIn(userId, new HashSet<>(foodIds));
+        if (favorites == null) {
+            return Collections.emptySet();
+        }
+        Set<String> favoriteFoodIds = new HashSet<>();
+        favorites.forEach(favorite -> favoriteFoodIds.add(favorite.getFoodId()));
+        return favoriteFoodIds;
+    }
+
+    private FoodResponseDto copyFoodResponse(FoodResponseDto food) {
+        if (food == null) {
+            return null;
+        }
+        return FoodResponseDto.builder()
+                .id(food.getId())
+                .code(food.getCode())
+                .userId(food.getUserId())
+                .productName(food.getProductName())
+                .genericName(food.getGenericName())
+                .imageUrl(food.getImageUrl())
+                .brands(food.getBrands())
+                .nutriments(food.getNutriments())
+                .availableUnits(food.getAvailableUnits() == null
+                        ? Collections.emptyList()
+                        : new ArrayList<>(food.getAvailableUnits()))
+                .originalFoodId(food.getOriginalFoodId())
+                .moderationStatus(food.getModerationStatus())
+                .verifiedByAdmin(food.isVerifiedByAdmin())
+                .favorite(false)
+                .build();
+    }
+
     private void evictFoodCache(String foodId) {
         try {
+            if (cacheManager == null) {
+                return;
+            }
             Cache cache = cacheManager.getCache(CacheConstants.FOOD_DATA);
             if (cache != null) {
                 cache.evict(foodId);

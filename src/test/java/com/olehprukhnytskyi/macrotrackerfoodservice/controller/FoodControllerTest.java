@@ -16,8 +16,10 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -40,6 +42,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Nutriments;
 import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.FoodRepository;
+import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.UserFoodFavoriteRepository;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.GeminiService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.ImageService;
@@ -100,6 +103,8 @@ class FoodControllerTest extends AbstractIntegrationTest {
     private FoodService foodService;
     @MockitoSpyBean
     private FoodRepository foodRepository;
+    @Autowired
+    private UserFoodFavoriteRepository userFoodFavoriteRepository;
     @MockitoSpyBean
     private OutboxRepository outboxRepository;
 
@@ -234,6 +239,52 @@ class FoodControllerTest extends AbstractIntegrationTest {
         String expected = objectMapper.writeValueAsString(foodDto);
         String actual = mvcResult.getResponse().getContentAsString();
         JSONAssert.assertEquals(expected, actual, JSONCompareMode.LENIENT);
+    }
+
+    @Test
+    @DisplayName("When user toggles favorite, should return user-specific favorite state")
+    void updateFavorite_whenCalledByOneUser_shouldNotAffectOtherUsers() throws Exception {
+        // Given
+        String foodId = "44444444";
+        foodRepository.save(Food.builder()
+                .id(foodId)
+                .code(foodId)
+                .productName("Banana")
+                .moderationStatus(ModerationStatus.APPROVED)
+                .verifiedByAdmin(true)
+                .nutriments(Nutriments.builder()
+                        .caloriesPer100(BigDecimal.valueOf(89))
+                        .carbohydratesPer100(BigDecimal.valueOf(23))
+                        .fatPer100(BigDecimal.valueOf(1))
+                        .proteinPer100(BigDecimal.valueOf(1))
+                        .build())
+                .build());
+
+        // When & Then
+        mockMvc.perform(
+                        patch("/api/foods/{id}/favorite", foodId)
+                                .header(CustomHeaders.X_USER_ID, 1L)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"favorite\":true}")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(true));
+
+        assertThat(userFoodFavoriteRepository.existsByUserIdAndFoodId(1L, foodId)).isTrue();
+
+        mockMvc.perform(
+                        get("/api/foods/{id}", foodId)
+                                .header(CustomHeaders.X_USER_ID, 1L)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(true));
+
+        mockMvc.perform(
+                        get("/api/foods/{id}", foodId)
+                                .header(CustomHeaders.X_USER_ID, 2L)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.favorite").value(false));
     }
 
     @Test

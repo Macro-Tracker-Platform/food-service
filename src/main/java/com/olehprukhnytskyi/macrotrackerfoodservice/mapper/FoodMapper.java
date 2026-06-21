@@ -33,7 +33,10 @@ public interface FoodMapper {
     })
     Food toModel(FoodRequestDto requestDto);
 
-    @Mapping(target = "availableUnits", ignore = true)
+    @Mappings({
+            @Mapping(target = "availableUnits", ignore = true),
+            @Mapping(target = "favorite", constant = "false")
+    })
     FoodResponseDto toDto(Food food);
 
     List<FoodResponseDto> toDto(List<Food> foods);

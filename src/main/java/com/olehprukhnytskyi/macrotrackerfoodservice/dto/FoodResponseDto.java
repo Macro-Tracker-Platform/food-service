@@ -56,4 +56,8 @@ public class FoodResponseDto {
     @Schema(description = "Indicates whether the product data has been verified"
                           + " by an administrator")
     private boolean verifiedByAdmin;
+
+    @Schema(description = "Indicates whether the current user marked this product as favorite")
+    @Builder.Default
+    private boolean favorite = false;
 }
