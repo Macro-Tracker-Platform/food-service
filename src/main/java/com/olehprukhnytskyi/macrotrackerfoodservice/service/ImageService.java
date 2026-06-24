@@ -59,6 +59,33 @@ public class ImageService {
         }
     }
 
+    public byte[] resizeImageToJpegBytes(MultipartFile file, int maxWidth, int maxHeight) {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            log.debug("Resizing image for Gemini to max {}x{}px", maxWidth, maxHeight);
+            BufferedImage source = ImageIO.read(file.getInputStream());
+            if (source == null) {
+                throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
+                        "Unsupported image format");
+            }
+            BufferedImage resized = Thumbnails.of(source)
+                    .size(maxWidth, maxHeight)
+                    .keepAspectRatio(true)
+                    .asBufferedImage();
+            BufferedImage rgb = new BufferedImage(
+                    resized.getWidth(),
+                    resized.getHeight(),
+                    BufferedImage.TYPE_INT_RGB
+            );
+            rgb.getGraphics().drawImage(resized, 0, 0, java.awt.Color.WHITE, null);
+            ImageIO.write(rgb, "jpg", baos);
+            return baos.toByteArray();
+        } catch (IOException e) {
+            log.error("Image resize failed", e);
+            throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
+                    "Failed to resize image", e);
+        }
+    }
+
     public String detectImageFormat(MultipartFile file) {
         try (InputStream is = file.getInputStream()) {
             ImageInputStream iis = ImageIO.createImageInputStream(is);

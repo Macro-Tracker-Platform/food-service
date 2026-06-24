@@ -7,7 +7,9 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodFavoriteRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
+import com.olehprukhnytskyi.macrotrackerfoodservice.service.NutritionLabelScanService;
 import com.olehprukhnytskyi.util.CustomHeaders;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -45,6 +47,7 @@ import org.springframework.web.multipart.MultipartFile;
 )
 public class FoodController {
     private final FoodService foodService;
+    private final NutritionLabelScanService nutritionLabelScanService;
 
     @Operation(
             summary = "Get food by ID",
@@ -166,6 +169,21 @@ public class FoodController {
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(saved);
+    }
+
+    @Operation(
+            summary = "Scan nutrition label",
+            description = "Extract macro nutrients per 100g from a nutrition label image"
+    )
+    @PostMapping(
+            value = "/nutrition-label-scan",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResponseEntity<NutritionLabelScanResponseDto> scanNutritionLabel(
+            @RequestPart("image") MultipartFile image,
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId) {
+        log.info("Scanning nutrition label for userId={}", userId);
+        return ResponseEntity.ok(nutritionLabelScanService.scan(userId, image));
     }
 
     @Operation(

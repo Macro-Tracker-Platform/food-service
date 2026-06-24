@@ -19,6 +19,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -38,6 +39,9 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsLabelResponseDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.exception.NutritionLabelRateLimitExceededException;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Nutriments;
@@ -46,6 +50,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.UserFoodFav
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.GeminiService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.ImageService;
+import com.olehprukhnytskyi.macrotrackerfoodservice.service.NutritionLabelScanService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.S3StorageService;
 import com.olehprukhnytskyi.model.OutboxEvent;
 import com.olehprukhnytskyi.repository.jpa.OutboxRepository;
@@ -94,6 +99,8 @@ class FoodControllerTest extends AbstractIntegrationTest {
     private S3StorageService s3StorageService;
     @MockitoBean
     private GeminiService geminiService;
+    @MockitoBean
+    private NutritionLabelScanService nutritionLabelScanService;
     @MockitoBean
     private ImageService imageService;
     @MockitoBean
@@ -588,6 +595,67 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 )
                 .andExpect(status().isBadRequest())
                 .andExpect(content().json(expected));
+    }
+
+    @Test
+    @DisplayName("When nutrition label scan succeeds, should return nutriments")
+    void scanNutritionLabel_whenValidImage_shouldReturnNutriments() throws Exception {
+        // Given
+        MockMultipartFile imagePart = new MockMultipartFile(
+                "image",
+                "label.jpg",
+                MediaType.IMAGE_JPEG_VALUE,
+                "image-content".getBytes()
+        );
+        NutritionLabelScanResponseDto responseDto = new NutritionLabelScanResponseDto(
+                NutrimentsLabelResponseDto.builder()
+                        .caloriesPer100(BigDecimal.valueOf(97))
+                        .carbohydratesPer100(BigDecimal.valueOf(3.8))
+                        .fatPer100(BigDecimal.valueOf(5.0))
+                        .proteinPer100(BigDecimal.valueOf(8.6))
+                        .build()
+        );
+
+        when(nutritionLabelScanService.scan(eq(1L), any())).thenReturn(responseDto);
+
+        // When & Then
+        mockMvc.perform(
+                        multipart("/api/foods/nutrition-label-scan")
+                                .file(imagePart)
+                                .header(CustomHeaders.X_USER_ID, 1L)
+                                .contentType(MediaType.MULTIPART_FORM_DATA)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nutriments.caloriesPer100").value(97))
+                .andExpect(jsonPath("$.nutriments.carbohydratesPer100").value(3.8))
+                .andExpect(jsonPath("$.nutriments.fatPer100").value(5.0))
+                .andExpect(jsonPath("$.nutriments.proteinPer100").value(8.6));
+    }
+
+    @Test
+    @DisplayName("When nutrition label scan limit is exceeded, should return 429")
+    void scanNutritionLabel_whenDailyLimitExceeded_shouldReturn429() throws Exception {
+        // Given
+        MockMultipartFile imagePart = new MockMultipartFile(
+                "image",
+                "label.jpg",
+                MediaType.IMAGE_JPEG_VALUE,
+                "image-content".getBytes()
+        );
+
+        when(nutritionLabelScanService.scan(eq(1L), any()))
+                .thenThrow(new NutritionLabelRateLimitExceededException(60));
+
+        // When & Then
+        mockMvc.perform(
+                        multipart("/api/foods/nutrition-label-scan")
+                                .file(imagePart)
+                                .header(CustomHeaders.X_USER_ID, 1L)
+                                .contentType(MediaType.MULTIPART_FORM_DATA)
+                )
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("X-Nutrition-Label-Rate-Limit", "daily-limit"))
+                .andExpect(header().string("Retry-After", "60"));
     }
 
     @Test
