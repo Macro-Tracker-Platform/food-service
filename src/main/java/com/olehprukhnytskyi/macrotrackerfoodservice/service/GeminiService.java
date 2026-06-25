@@ -133,13 +133,16 @@ public class GeminiService {
         request.setGenerationConfig(new GeminiRequest.GenerationConfig(
                 scanProperties.getTemperature(),
                 scanProperties.getMaxOutputTokens(),
-                scanProperties.getResponseMimeType()
+                scanProperties.getResponseMimeType(),
+                new GeminiRequest.ThinkingConfig(scanProperties.getThinkingBudget())
         ));
         return request;
     }
 
     private NutritionLabelScanResponseDto parseNutritionLabelResponse(GeminiResponse response) {
-        String text = extractFirstText(response).replaceAll("(?s)```json|```", "").trim();
+        String text = extractJsonObject(extractFirstText(response)
+                .replaceAll("(?s)```json|```", "")
+                .trim());
         try {
             return objectMapper.readValue(text, NutritionLabelScanResponseDto.class);
         } catch (JsonProcessingException e) {
@@ -150,6 +153,15 @@ public class GeminiService {
                     e
             );
         }
+    }
+
+    private String extractJsonObject(String text) {
+        int start = text.indexOf('{');
+        int end = text.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            return text.substring(start, end + 1);
+        }
+        return text;
     }
 
     private String extractFirstText(GeminiResponse response) {

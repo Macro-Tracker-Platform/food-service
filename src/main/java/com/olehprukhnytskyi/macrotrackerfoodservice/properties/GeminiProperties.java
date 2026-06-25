@@ -35,6 +35,8 @@ public class GeminiProperties {
         private double imageQuality = 0.75;
         @Min(1)
         private int maxOutputTokens = 128;
+        @Min(-1)
+        private int thinkingBudget = 0;
         private double temperature = 0.0;
         private String responseMimeType = "application/json";
         @Min(1)

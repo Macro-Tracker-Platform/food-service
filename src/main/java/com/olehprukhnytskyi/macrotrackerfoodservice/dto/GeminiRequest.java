@@ -54,5 +54,13 @@ public class GeminiRequest {
         private Double temperature;
         private Integer maxOutputTokens;
         private String responseMimeType;
+        private ThinkingConfig thinkingConfig;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ThinkingConfig {
+        private Integer thinkingBudget;
     }
 }
