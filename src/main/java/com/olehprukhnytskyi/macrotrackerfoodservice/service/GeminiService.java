@@ -117,10 +117,11 @@ public class GeminiService {
         byte[] imageBytes = imageService.resizeImageToJpegBytes(
                 image,
                 scanProperties.getMaxImageWidth(),
-                scanProperties.getMaxImageHeight()
+                scanProperties.getMaxImageHeight(),
+                scanProperties.getImageQuality()
         );
         String base64Image = Base64.getEncoder().encodeToString(imageBytes);
-        return new GeminiRequest(List.of(
+        GeminiRequest request = new GeminiRequest(List.of(
                 new GeminiRequest.Content(List.of(
                         new GeminiRequest.Part(geminiProperties.getNutritionLabelPrompt()),
                         new GeminiRequest.Part(new GeminiRequest.InlineData(
@@ -129,6 +130,12 @@ public class GeminiService {
                         ))
                 ))
         ));
+        request.setGenerationConfig(new GeminiRequest.GenerationConfig(
+                scanProperties.getTemperature(),
+                scanProperties.getMaxOutputTokens(),
+                scanProperties.getResponseMimeType()
+        ));
+        return request;
     }
 
     private NutritionLabelScanResponseDto parseNutritionLabelResponse(GeminiResponse response) {

@@ -10,6 +10,11 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class GeminiRequest {
     private List<Content> contents;
+    private GenerationConfig generationConfig;
+
+    public GeminiRequest(List<Content> contents) {
+        this.contents = contents;
+    }
 
     @Data
     @NoArgsConstructor
@@ -40,5 +45,14 @@ public class GeminiRequest {
     public static class InlineData {
         private String mimeType;
         private String data;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class GenerationConfig {
+        private Double temperature;
+        private Integer maxOutputTokens;
+        private String responseMimeType;
     }
 }

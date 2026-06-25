@@ -59,7 +59,10 @@ public class ImageService {
         }
     }
 
-    public byte[] resizeImageToJpegBytes(MultipartFile file, int maxWidth, int maxHeight) {
+    public byte[] resizeImageToJpegBytes(MultipartFile file,
+                                         int maxWidth,
+                                         int maxHeight,
+                                         double quality) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             log.debug("Resizing image for Gemini to max {}x{}px", maxWidth, maxHeight);
             BufferedImage source = ImageIO.read(file.getInputStream());
@@ -77,7 +80,11 @@ public class ImageService {
                     BufferedImage.TYPE_INT_RGB
             );
             rgb.getGraphics().drawImage(resized, 0, 0, java.awt.Color.WHITE, null);
-            ImageIO.write(rgb, "jpg", baos);
+            Thumbnails.of(rgb)
+                    .scale(1)
+                    .outputFormat("jpg")
+                    .outputQuality(quality)
+                    .toOutputStream(baos);
             return baos.toByteArray();
         } catch (IOException e) {
             log.error("Image resize failed", e);

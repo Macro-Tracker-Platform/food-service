@@ -2,6 +2,7 @@ package com.olehprukhnytskyi.macrotrackerfoodservice.properties;
 
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
 import java.time.ZoneId;
 import lombok.Data;
 import lombok.Getter;
@@ -27,9 +28,15 @@ public class GeminiProperties {
         @Min(1)
         private int dailyLimit = 10;
         @Min(1)
-        private int maxImageWidth = 1600;
+        private int maxImageWidth = 1280;
         @Min(1)
-        private int maxImageHeight = 1600;
+        private int maxImageHeight = 1280;
+        @Positive
+        private double imageQuality = 0.75;
+        @Min(1)
+        private int maxOutputTokens = 128;
+        private double temperature = 0.0;
+        private String responseMimeType = "application/json";
         @Min(1)
         private long defaultRetryAfterSeconds = 60;
         private ZoneId rateLimitZone = ZoneId.of("UTC");
