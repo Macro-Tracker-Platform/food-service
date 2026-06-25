@@ -64,12 +64,16 @@ public class ImageService {
                                          int maxHeight,
                                          double quality) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            log.debug("Resizing image for Gemini to max {}x{}px", maxWidth, maxHeight);
             BufferedImage source = ImageIO.read(file.getInputStream());
             if (source == null) {
                 throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
                         "Unsupported image format");
             }
+            if (canUseOriginalJpeg(file, source, maxWidth, maxHeight)) {
+                log.debug("Using original JPEG for Gemini");
+                return file.getBytes();
+            }
+            log.debug("Resizing image for Gemini to max {}x{}px", maxWidth, maxHeight);
             BufferedImage resized = Thumbnails.of(source)
                     .size(maxWidth, maxHeight)
                     .keepAspectRatio(true)
@@ -91,6 +95,15 @@ public class ImageService {
             throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
                     "Failed to resize image", e);
         }
+    }
+
+    private boolean canUseOriginalJpeg(MultipartFile file,
+                                       BufferedImage source,
+                                       int maxWidth,
+                                       int maxHeight) {
+        return "image/jpeg".equals(file.getContentType())
+                && source.getWidth() <= maxWidth
+                && source.getHeight() <= maxHeight;
     }
 
     public String detectImageFormat(MultipartFile file) {
