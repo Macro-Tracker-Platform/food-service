@@ -735,6 +735,27 @@ class FoodControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    @DisplayName("When admin verifies food, should return 200 OK")
+    void verifyFoodChanges_whenAdmin_shouldReturn200() throws Exception {
+        // Given
+        String pendingId = "22222222";
+        FoodResponseDto responseDto = FoodResponseDto.builder()
+                .id(pendingId)
+                .verifiedByAdmin(true)
+                .build();
+
+        doReturn(responseDto).when(foodService).verifyModeration(eq(pendingId));
+
+        // When & Then
+        mockMvc.perform(
+                        post("/api/foods/admin/{customizedId}/verify", pendingId)
+                                .header(CustomHeaders.X_USER_ROLES, "USER,ADMIN")
+                )
+                .andExpect(status().isOk())
+                .andExpect(content().json(objectMapper.writeValueAsString(responseDto)));
+    }
+
+    @Test
     @DisplayName("When user tries to approve food, should return 400 Bad Request")
     void approveFoodChanges_whenUser_shouldReturn400() throws Exception {
         // When & Then

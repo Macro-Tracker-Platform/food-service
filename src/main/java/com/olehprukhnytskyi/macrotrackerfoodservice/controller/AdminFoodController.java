@@ -35,10 +35,10 @@ public class AdminFoodController {
     private final FoodService foodService;
 
     @Operation(
-            summary = "Approve customized food (Admin only)",
+            summary = "Publish food publicly (Admin only)",
             description = """
-                    Approve user's custom food changes\s
-                    and apply them to the original product"""
+                    Approve user's food for public access without marking it as
+                    fully administrator-verified"""
     )
     @RequireRole("ADMIN")
     @PostMapping("/{customizedId}/approve")
@@ -47,6 +47,21 @@ public class AdminFoodController {
         log.info("Admin approved changes for customized food id={}", customizedId);
         FoodResponseDto updatedOriginal = foodService.approveModeration(customizedId);
         return ResponseEntity.ok(updatedOriginal);
+    }
+
+    @Operation(
+            summary = "Verify food data (Admin only)",
+            description = """
+                    Fully verify food data, publish it publicly and mark it with
+                    the administrator-verified flag"""
+    )
+    @RequireRole("ADMIN")
+    @PostMapping("/{customizedId}/verify")
+    public ResponseEntity<FoodResponseDto> verifyFoodChanges(
+            @PathVariable String customizedId) {
+        log.info("Admin verified changes for customized food id={}", customizedId);
+        FoodResponseDto verifiedFood = foodService.verifyModeration(customizedId);
+        return ResponseEntity.ok(verifiedFood);
     }
 
     @Operation(

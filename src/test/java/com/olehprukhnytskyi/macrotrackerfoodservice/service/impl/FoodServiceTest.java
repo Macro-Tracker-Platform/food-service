@@ -165,6 +165,8 @@ class FoodServiceTest {
         // Then
         assertNotNull(result);
         verify(foodCodeGenerator).resolveCode(any());
+        assertEquals(ModerationStatus.PENDING_REVIEW, food.getModerationStatus());
+        assertEquals("generated_code", food.getCode());
         verify(foodAssetService).uploadToTemp(image);
         verify(foodAssetService).confirmImage(anyString(), any());
         verify(foodRepository, atLeast(1)).save(food);
@@ -172,7 +174,7 @@ class FoodServiceTest {
 
     @Test
     @DisplayName("When food is not public, should skip moderation and keep it private")
-    void createFoodWithImages_whenFoodIsNotPublic_shouldSaveAsRejected() {
+    void createFoodWithImages_whenFoodIsNotPublic_shouldSaveWithoutModeration() {
         // Given
         foodRequestDto.setCode(null);
         foodRequestDto.setPublic(false);
@@ -187,7 +189,7 @@ class FoodServiceTest {
 
         // Then
         assertNotNull(result);
-        assertEquals(ModerationStatus.REJECTED, food.getModerationStatus());
+        assertEquals(ModerationStatus.NONE, food.getModerationStatus());
         assertEquals(1L, food.getUserId());
         verify(foodRepository).save(food);
     }
@@ -518,7 +520,7 @@ class FoodServiceTest {
     }
 
     @Test
-    @DisplayName("When approve moderation for a copy, should update original and DELETE copy")
+    @DisplayName("When approve moderation for a copy, should publish original and DELETE copy")
     void approveModeration_whenCopy_shouldUpdateOriginalAndDeleteCopy() {
         // Given
         String pendingId = "pending123";
@@ -551,13 +553,14 @@ class FoodServiceTest {
 
         // Then
         assertEquals(expectedDto, result);
-        assertTrue(original.isVerifiedByAdmin());
+        assertEquals(ModerationStatus.APPROVED, original.getModerationStatus());
+        assertFalse(original.isVerifiedByAdmin());
         assertEquals("Updated Name", original.getProductName());
         verify(foodRepository, times(1)).save(original);
     }
 
     @Test
-    @DisplayName("When approve moderation for a new food, should update status and save")
+    @DisplayName("When approve moderation for a new food, should publish and save")
     void approveModeration_whenNewFood_shouldUpdateAndSave() {
         // Given
         String pendingId = "pending123";
@@ -577,6 +580,33 @@ class FoodServiceTest {
 
         // Then
         assertEquals(expectedDto, result);
+        assertEquals(ModerationStatus.APPROVED, pending.getModerationStatus());
+        assertFalse(pending.isVerifiedByAdmin());
+        verify(foodRepository, times(1)).save(pending);
+    }
+
+    @Test
+    @DisplayName("When verify moderation for a new food, should publish as admin verified")
+    void verifyModeration_whenNewFood_shouldMarkVerifiedAndSave() {
+        // Given
+        String pendingId = "pending123";
+        Food pending = new Food();
+        pending.setId(pendingId);
+        pending.setOriginalFoodId(null);
+
+        Food saved = new Food();
+        FoodResponseDto expectedDto = new FoodResponseDto();
+
+        given(foodRepository.findById(pendingId)).willReturn(Optional.of(pending));
+        given(foodRepository.save(pending)).willReturn(saved);
+        given(foodMapper.toDto(saved)).willReturn(expectedDto);
+
+        // When
+        FoodResponseDto result = foodService.verifyModeration(pendingId);
+
+        // Then
+        assertEquals(expectedDto, result);
+        assertEquals(ModerationStatus.APPROVED, pending.getModerationStatus());
         assertTrue(pending.isVerifiedByAdmin());
         verify(foodRepository, times(1)).save(pending);
     }

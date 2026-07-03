@@ -351,7 +351,17 @@ public class FoodService {
 
     @Transactional
     public FoodResponseDto approveModeration(String pendingFoodId) {
-        log.info("Admin is approving food id={}", pendingFoodId);
+        log.info("Admin is publishing food id={}", pendingFoodId);
+        return completeModeration(pendingFoodId, false);
+    }
+
+    @Transactional
+    public FoodResponseDto verifyModeration(String pendingFoodId) {
+        log.info("Admin is verifying food id={}", pendingFoodId);
+        return completeModeration(pendingFoodId, true);
+    }
+
+    private FoodResponseDto completeModeration(String pendingFoodId, boolean verifiedByAdmin) {
         Food pendingFood = foodRepository.findById(pendingFoodId)
                 .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
                         "Food not found with id: " + pendingFoodId));
@@ -360,16 +370,18 @@ public class FoodService {
                     .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
                             "Original food not found"));
             foodMapper.mergePendingIntoOriginal(pendingFood, original);
-            original.setVerifiedByAdmin(true);
+            original.setModerationStatus(ModerationStatus.APPROVED);
+            original.setVerifiedByAdmin(verifiedByAdmin);
             pendingFood.setModerationStatus(ModerationStatus.APPROVED);
+            pendingFood.setVerifiedByAdmin(verifiedByAdmin);
             foodRepository.save(original);
             foodRepository.delete(pendingFood);
             evictFoodCache(pendingFoodId);
             evictFoodCache(original.getId());
             return foodMapper.toDto(original);
         } else {
-            pendingFood.setVerifiedByAdmin(true);
             pendingFood.setModerationStatus(ModerationStatus.APPROVED);
+            pendingFood.setVerifiedByAdmin(verifiedByAdmin);
             Food saved = foodRepository.save(pendingFood);
             evictFoodCache(saved.getId());
             return foodMapper.toDto(saved);
@@ -383,7 +395,9 @@ public class FoodService {
                 .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
                         "Food not found with id: " + pendingFoodId));
         pendingFood.setModerationStatus(ModerationStatus.REJECTED);
+        pendingFood.setVerifiedByAdmin(false);
         Food saved = foodRepository.save(pendingFood);
+        evictFoodCache(saved.getId());
         return foodMapper.toDto(saved);
     }
 
@@ -395,7 +409,10 @@ public class FoodService {
         }
         log.info("Fetching all foods for admin. Offset={}, Limit={}", offset, limit);
         Pageable pageable = PageRequest.of(offset / limit, limit);
-        return foodRepository.findAllByModerationStatus(status, pageable)
+        Page<Food> foodsPage = status == null
+                ? foodRepository.findAll(pageable)
+                : foodRepository.findAllByModerationStatus(status, pageable);
+        return foodsPage
                 .stream()
                 .map(foodMapper::toDto)
                 .toList();
@@ -411,7 +428,7 @@ public class FoodService {
         food.setCode(code);
         food.setModerationStatus(request.isPublic()
                 ? ModerationStatus.PENDING_REVIEW
-                : ModerationStatus.REJECTED);
+                : ModerationStatus.NONE);
         food.setVerifiedByAdmin(false);
         return food;
     }

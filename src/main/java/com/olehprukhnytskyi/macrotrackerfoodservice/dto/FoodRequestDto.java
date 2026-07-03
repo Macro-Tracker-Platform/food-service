@@ -1,5 +1,7 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -49,9 +51,12 @@ public class FoodRequestDto {
     @NotNull
     private NutrimentsDto nutriments;
 
-    @Schema(description = "Whether the product should be submitted for public moderation",
+    @Schema(description = "Whether the product should be submitted for public publication review."
+            + " Works for products without a real barcode; an internal code will be generated.",
             example = "true",
             defaultValue = "true")
+    @JsonProperty("isPublic")
+    @JsonAlias({"public", "is_public", "publishPublicly"})
     @Builder.Default
     private boolean isPublic = true;
 }
