@@ -21,8 +21,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17 & Maven Settings
-        uses: actions/setup-java@v3
+      - name: Set up JDK 21 & Maven Settings
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -35,7 +35,7 @@ jobs:
         env:
           MAVEN_USERNAME: ${{ github.actor }}
           MAVEN_PASSWORD: ${{ secrets.PACKAGES_TOKEN }}
-        run: mvn checkstyle:check -Dmaven.checkstyle.plugin.configLocation=https://raw.githubusercontent.com/mate-academy/style-guides/master/java/checkstyle.xml
+        run: mvn -B -s .github/maven-settings.xml checkstyle:check -Dmaven.checkstyle.plugin.configLocation=https://raw.githubusercontent.com/mate-academy/style-guides/master/java/checkstyle.xml
 
   tests:
     name: Unit Tests
@@ -44,8 +44,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17 & Maven Settings
-        uses: actions/setup-java@v3
+      - name: Set up JDK 21 & Maven Settings
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -58,7 +58,7 @@ jobs:
         env:
           MAVEN_USERNAME: ${{ github.actor }}
           MAVEN_PASSWORD: ${{ secrets.PACKAGES_TOKEN }}
-        run: mvn clean install -U
+        run: mvn -B -s .github/maven-settings.xml clean install -U
 
   build-and-deploy:
     name: Build & Push Docker Image
@@ -70,8 +70,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17 & Maven Settings
-        uses: actions/setup-java@v3
+      - name: Set up JDK 21 & Maven Settings
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -84,7 +84,7 @@ jobs:
         env:
           MAVEN_USERNAME: ${{ github.actor }}
           MAVEN_PASSWORD: ${{ secrets.PACKAGES_TOKEN }}
-        run: mvn -B clean package -DskipTests
+        run: mvn -B -s .github/maven-settings.xml clean package -DskipTests
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
