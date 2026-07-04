@@ -11,6 +11,39 @@ class FoodSearchDaoTest {
     private final FoodSearchDao foodSearchDao = new FoodSearchDao(null);
 
     @Test
+    @DisplayName("Should prefer verified exact food over branded partial matches")
+    void rankCandidates_whenGenericVerifiedFoodMatches_shouldPutItFirst() {
+        List<Food> foods = List.of(
+                food("1", "Mccormick, garlic pepper, garlic"),
+                verifiedFood("2", "Garlic, raw"),
+                food("3", "Garlic herb, garlic")
+        );
+
+        List<Food> result = foodSearchDao.rankCandidates(foods, "garlic");
+
+        assertEquals(List.of("2", "3", "1"), result.stream()
+                .map(Food::getId)
+                .toList());
+    }
+
+    @Test
+    @DisplayName("Should remove multi-word results that only match one query token")
+    void rankCandidates_whenQueryHasMultipleWords_shouldRequireAllTokens() {
+        List<Food> foods = List.of(
+                verifiedFood("1", "Soursop, raw"),
+                verifiedFood("2", "Garlic, raw"),
+                food("3", "Dill & Garlic Raw Kraut"),
+                verifiedFood("4", "Limes, raw")
+        );
+
+        List<Food> result = foodSearchDao.rankCandidates(foods, "garlic raw");
+
+        assertEquals(List.of("2", "3"), result.stream()
+                .map(Food::getId)
+                .toList());
+    }
+
+    @Test
     @DisplayName("Should avoid returning near-identical product names back-to-back")
     void diversifySimilarProducts_whenNamesShareBase_shouldInterleaveGroups() {
         List<Food> foods = List.of(
@@ -48,6 +81,14 @@ class FoodSearchDaoTest {
         return Food.builder()
                 .id(id)
                 .productName(productName)
+                .build();
+    }
+
+    private Food verifiedFood(String id, String productName) {
+        return Food.builder()
+                .id(id)
+                .productName(productName)
+                .verifiedByAdmin(true)
                 .build();
     }
 }

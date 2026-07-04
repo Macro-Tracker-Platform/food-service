@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -26,10 +27,14 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class FoodSearchDao {
-    private static final int DIVERSITY_FETCH_MULTIPLIER = 4;
+    private static final int DIVERSITY_FETCH_MULTIPLIER = 8;
     private static final int MAX_DIVERSITY_CANDIDATES = 200;
     private static final float APPROVED_BOOST = 100.0f;
     private static final float VERIFIED_BY_ADMIN_BOOST = 450.0f;
+    private static final Pattern DIACRITICS = Pattern.compile("\\p{M}");
+    private static final Pattern PARENS = Pattern.compile("\\([^)]*\\)");
+    private static final Pattern NON_WORD = Pattern.compile("[^\\p{L}\\p{N}\\s]");
+    private static final Pattern SPACES = Pattern.compile("\\s+");
 
     private final ElasticsearchClient elasticsearchClient;
 
@@ -40,7 +45,12 @@ public class FoodSearchDao {
                     "Query must not be null or empty");
         }
         try {
-            Query searchQuery = buildSearchQuery(query, userId, excludedIds);
+            String cleanQuery = cleanQuery(query);
+            if (cleanQuery.isBlank()) {
+                throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
+                        "Query must contain searchable text");
+            }
+            Query searchQuery = buildSearchQuery(cleanQuery, userId, excludedIds);
             boolean diversifyResults = shouldDiversify(offset, limit);
             SearchResponse<Food> response = elasticsearchClient.search(
                     s -> s.index("macro_tracker.foods")
@@ -62,7 +72,10 @@ public class FoodSearchDao {
                     })
                     .filter(Objects::nonNull)
                     .toList();
-            return diversifyResults ? diversifySimilarProducts(foods, offset, limit) : foods;
+            List<Food> rankedFoods = rankCandidates(foods, cleanQuery);
+            return diversifyResults
+                    ? diversifySimilarProducts(rankedFoods, offset, limit)
+                    : rankedFoods;
         } catch (IOException e) {
             throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
                     "Failed to execute search request", e);
@@ -97,8 +110,7 @@ public class FoodSearchDao {
         }
     }
 
-    private Query buildSearchQuery(String query, Long userId, List<String> excludedIds) {
-        String cleanQuery = query.trim().replaceAll("[^\\p{L}\\p{N}\\s]", "").trim();
+    private Query buildSearchQuery(String cleanQuery, Long userId, List<String> excludedIds) {
         return Query.of(q -> q.bool(mainBool -> {
             mainBool.must(m -> m.bool(searchBool -> {
                 searchBool.should(s -> s.multiMatch(mm -> mm
@@ -114,6 +126,7 @@ public class FoodSearchDao {
                 searchBool.should(s -> s.multiMatch(mm -> mm
                         .fields("product_name^3", "_keywords^2", "generic_name^1")
                         .query(cleanQuery)
+                        .operator(Operator.And)
                         .fuzziness("AUTO")
                 ));
                 if (cleanQuery.matches("^\\d{6,24}$")) {
@@ -171,6 +184,70 @@ public class FoodSearchDao {
         return Math.clamp(requestedWindow, limit, MAX_DIVERSITY_CANDIDATES);
     }
 
+    List<Food> rankCandidates(List<Food> foods, String cleanQuery) {
+        List<String> queryTokens = queryTokens(cleanQuery);
+        return foods.stream()
+                .filter(food -> matchesRequiredTokens(food, queryTokens))
+                .sorted((left, right) -> Double.compare(
+                        relevanceScore(right, cleanQuery, queryTokens),
+                        relevanceScore(left, cleanQuery, queryTokens)))
+                .toList();
+    }
+
+    private boolean matchesRequiredTokens(Food food, List<String> queryTokens) {
+        if (queryTokens.size() <= 1) {
+            return true;
+        }
+        String searchableText = normalizedSearchableText(food);
+        return queryTokens.stream().allMatch(searchableText::contains);
+    }
+
+    private double relevanceScore(Food food, String cleanQuery, List<String> queryTokens) {
+        String productName = normalizeText(food.getProductName());
+        double score = 0.0;
+        if (productName.equals(cleanQuery)) {
+            score += 10_000.0;
+        }
+        if (productName.startsWith(cleanQuery + " ") || productName.startsWith(cleanQuery)) {
+            score += 4_000.0;
+        }
+        if (productName.contains(cleanQuery)) {
+            score += 1_500.0;
+        }
+        if (containsAllTokens(productName, queryTokens)) {
+            score += 700.0;
+        }
+        if (containsTokensInOrder(productName, queryTokens)) {
+            score += 350.0;
+        }
+        int firstTokenIndex = queryTokens.isEmpty()
+                ? -1
+                : productName.indexOf(queryTokens.getFirst());
+        if (firstTokenIndex > 0) {
+            score -= Math.min(firstTokenIndex * 12.0, 500.0);
+        }
+        if (food.isVerifiedByAdmin()) {
+            score += 900.0;
+        }
+        return score;
+    }
+
+    private boolean containsAllTokens(String productName, List<String> queryTokens) {
+        return queryTokens.stream().allMatch(productName::contains);
+    }
+
+    private boolean containsTokensInOrder(String productName, List<String> queryTokens) {
+        int currentIndex = 0;
+        for (String token : queryTokens) {
+            int tokenIndex = productName.indexOf(token, currentIndex);
+            if (tokenIndex < 0) {
+                return false;
+            }
+            currentIndex = tokenIndex + token.length();
+        }
+        return true;
+    }
+
     List<Food> diversifySimilarProducts(List<Food> foods, int offset, int limit) {
         if (foods.isEmpty() || limit <= 0) {
             return Collections.emptyList();
@@ -206,15 +283,39 @@ public class FoodSearchDao {
         if (productName == null || productName.isBlank()) {
             return food.getId() == null ? "" : food.getId();
         }
-        String normalized = Normalizer.normalize(productName, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "")
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("\\([^)]*\\)", " ")
-                .split("[,;:/|]")[0]
-                .replaceAll("[^\\p{L}\\p{N}\\s]", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
+        String baseName = PARENS.matcher(productName).replaceAll(" ")
+                .split("[,;:/|]")[0];
+        String normalized = normalizeText(baseName);
         return normalized.isEmpty() ? productName.toLowerCase(Locale.ROOT) : normalized;
+    }
+
+    private String cleanQuery(String query) {
+        return normalizeText(query);
+    }
+
+    private List<String> queryTokens(String cleanQuery) {
+        if (cleanQuery.isBlank()) {
+            return Collections.emptyList();
+        }
+        return List.of(cleanQuery.split(" "));
+    }
+
+    private String normalizedSearchableText(Food food) {
+        return normalizeText(String.join(" ",
+                Objects.toString(food.getProductName(), ""),
+                Objects.toString(food.getGenericName(), ""),
+                Objects.toString(food.getBrands(), ""),
+                food.getKeywords() == null ? "" : String.join(" ", food.getKeywords())));
+    }
+
+    private String normalizeText(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = Normalizer.normalize(value, Normalizer.Form.NFD);
+        normalized = DIACRITICS.matcher(normalized).replaceAll("");
+        normalized = NON_WORD.matcher(normalized.toLowerCase(Locale.ROOT)).replaceAll(" ");
+        return SPACES.matcher(normalized).replaceAll(" ").trim();
     }
 
     private Query buildSuggestionQuery(String normalized) {
