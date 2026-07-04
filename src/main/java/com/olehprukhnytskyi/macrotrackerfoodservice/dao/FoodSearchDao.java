@@ -11,8 +11,13 @@ import com.olehprukhnytskyi.exception.InternalServerException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import java.io.IOException;
+import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +26,11 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class FoodSearchDao {
+    private static final int DIVERSITY_FETCH_MULTIPLIER = 4;
+    private static final int MAX_DIVERSITY_CANDIDATES = 200;
+    private static final float APPROVED_BOOST = 100.0f;
+    private static final float VERIFIED_BY_ADMIN_BOOST = 450.0f;
+
     private final ElasticsearchClient elasticsearchClient;
 
     public List<Food> search(String query, Long userId, List<String> excludedIds,
@@ -31,17 +41,18 @@ public class FoodSearchDao {
         }
         try {
             Query searchQuery = buildSearchQuery(query, userId, excludedIds);
+            boolean diversifyResults = shouldDiversify(offset, limit);
             SearchResponse<Food> response = elasticsearchClient.search(
                     s -> s.index("macro_tracker.foods")
                             .query(searchQuery)
-                            .from(offset)
-                            .size(limit),
+                            .from(diversifyResults ? 0 : offset)
+                            .size(diversifyResults ? candidateLimit(offset, limit) : limit),
                     Food.class
             );
             if (response == null || response.hits() == null || response.hits().hits() == null) {
                 return Collections.emptyList();
             }
-            return response.hits().hits().stream()
+            List<Food> foods = response.hits().hits().stream()
                     .map(hit -> {
                         if (hit.source() == null) {
                             return null;
@@ -51,6 +62,7 @@ public class FoodSearchDao {
                     })
                     .filter(Objects::nonNull)
                     .toList();
+            return diversifyResults ? diversifySimilarProducts(foods, offset, limit) : foods;
         } catch (IOException e) {
             throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
                     "Failed to execute search request", e);
@@ -126,7 +138,12 @@ public class FoodSearchDao {
             mainBool.should(s -> s.match(m -> m
                     .field("moderation_status")
                     .query("APPROVED")
-                    .boost(100.0f)
+                    .boost(APPROVED_BOOST)
+            ));
+            mainBool.should(s -> s.term(t -> t
+                    .field("verified_by_admin")
+                    .value(true)
+                    .boost(VERIFIED_BY_ADMIN_BOOST)
             ));
             if (userId != null) {
                 mainBool.should(s -> s.term(t -> t
@@ -140,6 +157,64 @@ public class FoodSearchDao {
             }
             return mainBool;
         }));
+    }
+
+    private boolean shouldDiversify(int offset, int limit) {
+        return offset >= 0 && limit > 0 && offset + limit <= MAX_DIVERSITY_CANDIDATES;
+    }
+
+    private int candidateLimit(int offset, int limit) {
+        if (limit <= 0) {
+            return 0;
+        }
+        int requestedWindow = offset + limit * DIVERSITY_FETCH_MULTIPLIER;
+        return Math.clamp(requestedWindow, limit, MAX_DIVERSITY_CANDIDATES);
+    }
+
+    List<Food> diversifySimilarProducts(List<Food> foods, int offset, int limit) {
+        if (foods.isEmpty() || limit <= 0) {
+            return Collections.emptyList();
+        }
+        Map<String, List<Food>> groupedFoods = new LinkedHashMap<>();
+        foods.forEach(food -> groupedFoods
+                .computeIfAbsent(diversityKey(food), ignored -> new ArrayList<>())
+                .add(food));
+
+        List<List<Food>> groups = new ArrayList<>(groupedFoods.values());
+        List<Food> diversified = new ArrayList<>(foods.size());
+        boolean added;
+        int groupRank = 0;
+        do {
+            added = false;
+            for (List<Food> group : groups) {
+                if (groupRank < group.size()) {
+                    diversified.add(group.get(groupRank));
+                    added = true;
+                }
+            }
+            groupRank++;
+        } while (added);
+
+        return diversified.stream()
+                .skip(offset)
+                .limit(limit)
+                .toList();
+    }
+
+    private String diversityKey(Food food) {
+        String productName = food.getProductName();
+        if (productName == null || productName.isBlank()) {
+            return food.getId() == null ? "" : food.getId();
+        }
+        String normalized = Normalizer.normalize(productName, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\([^)]*\\)", " ")
+                .split("[,;:/|]")[0]
+                .replaceAll("[^\\p{L}\\p{N}\\s]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return normalized.isEmpty() ? productName.toLowerCase(Locale.ROOT) : normalized;
     }
 
     private Query buildSuggestionQuery(String normalized) {
