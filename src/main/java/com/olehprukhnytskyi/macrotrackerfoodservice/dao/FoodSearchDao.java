@@ -27,10 +27,11 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class FoodSearchDao {
-    private static final int DIVERSITY_FETCH_MULTIPLIER = 8;
     private static final int MAX_DIVERSITY_CANDIDATES = 200;
     private static final float APPROVED_BOOST = 100.0f;
     private static final float VERIFIED_BY_ADMIN_BOOST = 450.0f;
+    private static final double VERIFIED_BY_ADMIN_RANK_BOOST = 5_000.0;
+    private static final double VERIFIED_RAW_FOOD_RANK_BOOST = 12_000.0;
     private static final Pattern DIACRITICS = Pattern.compile("\\p{M}");
     private static final Pattern PARENS = Pattern.compile("\\([^)]*\\)");
     private static final Pattern NON_WORD = Pattern.compile("[^\\p{L}\\p{N}\\s]");
@@ -180,8 +181,7 @@ public class FoodSearchDao {
         if (limit <= 0) {
             return 0;
         }
-        int requestedWindow = offset + limit * DIVERSITY_FETCH_MULTIPLIER;
-        return Math.clamp(requestedWindow, limit, MAX_DIVERSITY_CANDIDATES);
+        return MAX_DIVERSITY_CANDIDATES;
     }
 
     List<Food> rankCandidates(List<Food> foods, String cleanQuery) {
@@ -227,9 +227,17 @@ public class FoodSearchDao {
             score -= Math.min(firstTokenIndex * 12.0, 500.0);
         }
         if (food.isVerifiedByAdmin()) {
-            score += 900.0;
+            score += VERIFIED_BY_ADMIN_RANK_BOOST;
+        }
+        if (food.isVerifiedByAdmin() && isVerifiedRawFood(productName, cleanQuery)) {
+            score += VERIFIED_RAW_FOOD_RANK_BOOST;
         }
         return score;
+    }
+
+    private boolean isVerifiedRawFood(String productName, String cleanQuery) {
+        return productName.equals(cleanQuery + " raw")
+                || productName.startsWith(cleanQuery + " raw ");
     }
 
     private boolean containsAllTokens(String productName, List<String> queryTokens) {

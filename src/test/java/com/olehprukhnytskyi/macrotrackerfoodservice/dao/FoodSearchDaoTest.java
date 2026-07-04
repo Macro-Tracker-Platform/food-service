@@ -14,14 +14,14 @@ class FoodSearchDaoTest {
     @DisplayName("Should prefer verified exact food over branded partial matches")
     void rankCandidates_whenGenericVerifiedFoodMatches_shouldPutItFirst() {
         List<Food> foods = List.of(
-                food("1", "Mccormick, garlic pepper, garlic"),
+                food("1", "Garlic"),
                 verifiedFood("2", "Garlic, raw"),
                 food("3", "Garlic herb, garlic")
         );
 
         List<Food> result = foodSearchDao.rankCandidates(foods, "garlic");
 
-        assertEquals(List.of("2", "3", "1"), result.stream()
+        assertEquals(List.of("2", "1", "3"), result.stream()
                 .map(Food::getId)
                 .toList());
     }
