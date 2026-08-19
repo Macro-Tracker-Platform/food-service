@@ -26,7 +26,11 @@ public class GeminiProperties {
     @Data
     public static class NutritionLabelScan {
         @Min(1)
-        private int dailyLimit = 10;
+        private int dailyLimit = 15;
+        @Min(1)
+        private int freeMonthlyLimit = 3;
+        @Min(1)
+        private int proMonthlyLimit = 60;
         @Min(1)
         private int maxImageWidth = 1280;
         @Min(1)

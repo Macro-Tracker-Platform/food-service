@@ -19,16 +19,20 @@ public class NutritionLabelScanExceptionHandler {
     @ExceptionHandler(NutritionLabelRateLimitExceededException.class)
     public ResponseEntity<ProblemDetails> handleRateLimit(
             NutritionLabelRateLimitExceededException exception) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(RATE_LIMIT_HEADER, exception.getScope() + "-limit");
+        headers.add("X-Nutrition-Label-Limit", String.valueOf(exception.getLimit()));
+        headers.add("X-Nutrition-Label-Remaining", "0");
+        headers.add("X-Nutrition-Label-Reset-At", exception.getResetAt().toString());
+        headers.add(HttpHeaders.RETRY_AFTER, String.valueOf(exception.getRetryAfterSeconds()));
         ProblemDetails body = ProblemDetails.builder()
-                .title("Daily nutrition label scan limit exceeded")
+                .title("Nutrition label scan limit exceeded")
                 .status(HttpStatus.TOO_MANY_REQUESTS.value())
-                .code("NUTRITION_LABEL_DAILY_LIMIT")
+                .code("NUTRITION_LABEL_" + exception.getScope().toUpperCase()
+                        + "_LIMIT")
                 .detail(exception.getMessage())
                 .traceId("N/A")
                 .build();
-        HttpHeaders headers = new HttpHeaders();
-        headers.add(RATE_LIMIT_HEADER, "daily-limit");
-        headers.add(HttpHeaders.RETRY_AFTER, String.valueOf(exception.getRetryAfterSeconds()));
         return ResponseEntity
                 .status(HttpStatus.TOO_MANY_REQUESTS)
                 .headers(headers)

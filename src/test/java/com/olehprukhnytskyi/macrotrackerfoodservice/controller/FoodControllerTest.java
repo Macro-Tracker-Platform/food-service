@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
@@ -616,13 +617,14 @@ class FoodControllerTest extends AbstractIntegrationTest {
                         .build()
         );
 
-        when(nutritionLabelScanService.scan(eq(1L), any())).thenReturn(responseDto);
+        when(nutritionLabelScanService.scan(eq(1L), eq("42"), any())).thenReturn(responseDto);
 
         // When & Then
         mockMvc.perform(
                         multipart("/api/foods/nutrition-label-scan")
                                 .file(imagePart)
                                 .header(CustomHeaders.X_USER_ID, 1L)
+                                .header("X-App-Version-Code", "42")
                                 .contentType(MediaType.MULTIPART_FORM_DATA)
                 )
                 .andExpect(status().isOk())
@@ -643,8 +645,9 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 "image-content".getBytes()
         );
 
-        when(nutritionLabelScanService.scan(eq(1L), any()))
-                .thenThrow(new NutritionLabelRateLimitExceededException(60));
+        when(nutritionLabelScanService.scan(eq(1L), isNull(), any()))
+                .thenThrow(new NutritionLabelRateLimitExceededException(
+                        "daily", 60, 15, java.time.Instant.now().plusSeconds(60)));
 
         // When & Then
         mockMvc.perform(
