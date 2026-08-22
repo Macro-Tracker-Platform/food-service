@@ -2,18 +2,19 @@ package com.olehprukhnytskyi.macrotrackerfoodservice.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.olehprukhnytskyi.macrotrackerfoodservice.client.EntitlementClient;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.EntitlementDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsLabelResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.exception.GeminiTemporaryUnavailableException;
 import com.olehprukhnytskyi.macrotrackerfoodservice.exception.NutritionLabelRateLimitExceededException;
-import com.olehprukhnytskyi.macrotrackerfoodservice.properties.GeminiProperties;
+import java.math.BigDecimal;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,22 +42,25 @@ class NutritionLabelScanServiceTest {
     @BeforeEach
     void setUp() {
         rateLimitService = mock(NutritionLabelRateLimitService.class);
-        GeminiProperties properties = new GeminiProperties();
         scanService = new NutritionLabelScanService(
-                imageService, geminiService, rateLimitService,
-                entitlementClient, properties);
+                imageService, geminiService, rateLimitService, entitlementClient);
         EntitlementDto entitlement = new EntitlementDto();
         entitlement.setPlan("FREE");
         when(entitlementClient.getEntitlement(USER_ID, null)).thenReturn(entitlement);
     }
 
     @Test
-    void scan_whenGeminiSucceeds_shouldReturnResponse() {
-        NutritionLabelRateLimitService.Reservation reservation =
-                reservation();
-        NutritionLabelScanResponseDto expected = new NutritionLabelScanResponseDto();
+    void scan_whenGeminiSucceedsForFreeUser_shouldConsumeMonthlySuccessfulQuota() {
+        NutritionLabelRateLimitService.SuccessfulScanQuota availableQuota =
+                quota("monthly", 3, 0);
+        NutritionLabelRateLimitService.SuccessfulScanQuota consumedQuota =
+                quota("monthly", 3, 1);
+        NutritionLabelScanResponseDto expected = responseWithNutriments();
 
-        when(rateLimitService.reserve(USER_ID, 3)).thenReturn(reservation);
+        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, false))
+                .thenReturn(availableQuota);
+        when(rateLimitService.recordSuccessfulScan(USER_ID, false))
+                .thenReturn(consumedQuota);
         when(geminiService.scanNutritionLabel(image)).thenReturn(expected);
 
         NutritionLabelScanResponseDto actual = scanService.scan(USER_ID, null, image);
@@ -65,74 +69,124 @@ class NutritionLabelScanServiceTest {
         assertThat(actual.getQuota().getLimit()).isEqualTo(3);
         assertThat(actual.getQuota().getRemaining()).isEqualTo(2);
         verify(imageService).validateImage(image);
+        verify(rateLimitService).reserveRequest(USER_ID);
     }
 
     @Test
-    void scan_forProUser_shouldApplyProMonthlyLimit() {
+    void scan_forProUser_shouldApplyPremiumDailySuccessfulQuota() {
         EntitlementDto entitlement = new EntitlementDto();
         entitlement.setPlan("PRO");
         when(entitlementClient.getEntitlement(USER_ID, null)).thenReturn(entitlement);
-        NutritionLabelRateLimitService.Reservation reservation =
-                new NutritionLabelRateLimitService.Reservation(
-                        "monthly-key", "daily-key", 60, 1,
-                        Instant.now().plusSeconds(120));
-        NutritionLabelScanResponseDto response = new NutritionLabelScanResponseDto();
-        when(rateLimitService.reserve(USER_ID, 60)).thenReturn(reservation);
+        NutritionLabelRateLimitService.SuccessfulScanQuota availableQuota =
+                quota("premium-daily", 30, 0);
+        NutritionLabelRateLimitService.SuccessfulScanQuota consumedQuota =
+                quota("premium-daily", 30, 1);
+        NutritionLabelScanResponseDto response = responseWithNutriments();
+
+        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, true))
+                .thenReturn(availableQuota);
+        when(rateLimitService.recordSuccessfulScan(USER_ID, true))
+                .thenReturn(consumedQuota);
         when(geminiService.scanNutritionLabel(image)).thenReturn(response);
 
         NutritionLabelScanResponseDto actual = scanService.scan(USER_ID, null, image);
 
-        assertThat(actual.getQuota().getLimit()).isEqualTo(60);
-        assertThat(actual.getQuota().getRemaining()).isEqualTo(59);
+        assertThat(actual.getQuota().getLimit()).isEqualTo(30);
+        assertThat(actual.getQuota().getRemaining()).isEqualTo(29);
     }
 
     @Test
-    void scan_forLegacyFreeUser_shouldApplyProMonthlyLimit() {
+    void scan_forLegacyFreeUser_shouldApplyPremiumDailySuccessfulQuota() {
         EntitlementDto entitlement = new EntitlementDto();
         entitlement.setPlan("LEGACY_FREE");
         entitlement.setLegacyAccess(true);
         when(entitlementClient.getEntitlement(USER_ID, null)).thenReturn(entitlement);
-        NutritionLabelRateLimitService.Reservation reservation =
-                new NutritionLabelRateLimitService.Reservation(
-                        "monthly-key", "daily-key", 60, 1,
-                        Instant.now().plusSeconds(120));
-        NutritionLabelScanResponseDto response = new NutritionLabelScanResponseDto();
-        when(rateLimitService.reserve(USER_ID, 60)).thenReturn(reservation);
+        NutritionLabelRateLimitService.SuccessfulScanQuota availableQuota =
+                quota("premium-daily", 30, 0);
+        NutritionLabelRateLimitService.SuccessfulScanQuota consumedQuota =
+                quota("premium-daily", 30, 1);
+        NutritionLabelScanResponseDto response = responseWithNutriments();
+
+        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, true))
+                .thenReturn(availableQuota);
+        when(rateLimitService.recordSuccessfulScan(USER_ID, true))
+                .thenReturn(consumedQuota);
         when(geminiService.scanNutritionLabel(image)).thenReturn(response);
 
         NutritionLabelScanResponseDto actual = scanService.scan(USER_ID, null, image);
 
-        assertThat(actual.getQuota().getLimit()).isEqualTo(60);
-        assertThat(actual.getQuota().getRemaining()).isEqualTo(59);
+        assertThat(actual.getQuota().getLimit()).isEqualTo(30);
+        assertThat(actual.getQuota().getRemaining()).isEqualTo(29);
     }
 
     @Test
-    void scan_whenGeminiIsTemporaryUnavailable_shouldReleaseReservation() {
-        NutritionLabelRateLimitService.Reservation reservation =
-                reservation();
+    void scan_whenGeminiIsTemporaryUnavailable_shouldKeepRequestCountAndNotConsumeSuccessQuota() {
+        NutritionLabelRateLimitService.SuccessfulScanQuota availableQuota =
+                quota("monthly", 3, 0);
 
-        when(rateLimitService.reserve(USER_ID, 3)).thenReturn(reservation);
-        doThrow(new GeminiTemporaryUnavailableException(60, null))
-                .when(geminiService).scanNutritionLabel(image);
+        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, false))
+                .thenReturn(availableQuota);
+        when(geminiService.scanNutritionLabel(image))
+                .thenThrow(new GeminiTemporaryUnavailableException(60, null));
 
         assertThatThrownBy(() -> scanService.scan(USER_ID, null, image))
                 .isInstanceOf(GeminiTemporaryUnavailableException.class);
-        verify(rateLimitService).release(reservation);
+        verify(rateLimitService).reserveRequest(USER_ID);
+        verify(rateLimitService, never()).recordSuccessfulScan(USER_ID, false);
     }
 
     @Test
-    void scan_whenDailyLimitExceeded_shouldNotCallGemini() {
-        when(rateLimitService.reserve(USER_ID, 3))
+    void scan_whenNoNutrientsAreParsed_shouldNotConsumeSuccessQuota() {
+        NutritionLabelRateLimitService.SuccessfulScanQuota availableQuota =
+                quota("monthly", 3, 0);
+        NutritionLabelScanResponseDto response = new NutritionLabelScanResponseDto();
+
+        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, false))
+                .thenReturn(availableQuota);
+        when(geminiService.scanNutritionLabel(image)).thenReturn(response);
+
+        NutritionLabelScanResponseDto actual = scanService.scan(USER_ID, null, image);
+
+        assertThat(actual.getQuota().getLimit()).isEqualTo(3);
+        assertThat(actual.getQuota().getRemaining()).isEqualTo(3);
+        verify(rateLimitService, never()).recordSuccessfulScan(USER_ID, false);
+    }
+
+    @Test
+    void scan_whenRequestDailyLimitExceeded_shouldNotCallGemini() {
+        when(rateLimitService.reserveRequest(USER_ID))
                 .thenThrow(new NutritionLabelRateLimitExceededException(
-                        "daily", 120, 15, Instant.now().plusSeconds(120)));
+                        "daily", 120, 50, Instant.now().plusSeconds(120)));
 
         assertThatThrownBy(() -> scanService.scan(USER_ID, null, image))
                 .isInstanceOf(NutritionLabelRateLimitExceededException.class);
+        verify(rateLimitService, never()).ensureSuccessfulScanQuotaAvailable(USER_ID, false);
         verify(geminiService, times(0)).scanNutritionLabel(image);
     }
 
-    private NutritionLabelRateLimitService.Reservation reservation() {
-        return new NutritionLabelRateLimitService.Reservation(
-                "monthly-key", "daily-key", 3, 1, Instant.now().plusSeconds(120));
+    @Test
+    void scan_whenSuccessfulMonthlyQuotaExceeded_shouldNotCallGemini() {
+        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, false))
+                .thenThrow(new NutritionLabelRateLimitExceededException(
+                        "monthly", 120, 3, Instant.now().plusSeconds(120)));
+
+        assertThatThrownBy(() -> scanService.scan(USER_ID, null, image))
+                .isInstanceOf(NutritionLabelRateLimitExceededException.class);
+        verify(rateLimitService).reserveRequest(USER_ID);
+        verify(geminiService, times(0)).scanNutritionLabel(image);
+    }
+
+    private NutritionLabelScanResponseDto responseWithNutriments() {
+        return new NutritionLabelScanResponseDto(
+                NutrimentsLabelResponseDto.builder()
+                        .caloriesPer100(BigDecimal.valueOf(100))
+                        .build());
+    }
+
+    private NutritionLabelRateLimitService.SuccessfulScanQuota quota(String scope,
+                                                                     int limit,
+                                                                     int used) {
+        return new NutritionLabelRateLimitService.SuccessfulScanQuota(
+                scope, limit, used, Instant.now().plusSeconds(120));
     }
 }

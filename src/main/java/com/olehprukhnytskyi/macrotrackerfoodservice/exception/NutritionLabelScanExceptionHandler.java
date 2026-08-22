@@ -28,7 +28,8 @@ public class NutritionLabelScanExceptionHandler {
         ProblemDetails body = ProblemDetails.builder()
                 .title("Nutrition label scan limit exceeded")
                 .status(HttpStatus.TOO_MANY_REQUESTS.value())
-                .code("NUTRITION_LABEL_" + exception.getScope().toUpperCase()
+                .code("NUTRITION_LABEL_"
+                        + exception.getScope().toUpperCase().replace('-', '_')
                         + "_LIMIT")
                 .detail(exception.getMessage())
                 .traceId("N/A")
