@@ -77,7 +77,7 @@ public class FoodService {
         try {
             boolean forceInternalCode = false;
             if (dto.getCode() != null) {
-                Optional<Food> existing = foodRepository.findById(dto.getCode());
+                Optional<Food> existing = findFoodByIdOrCode(dto.getCode());
                 if (existing.isPresent()) {
                     Food existingFood = existing.get();
                     if (!canAccessFood(existingFood, userId)) {
@@ -131,6 +131,7 @@ public class FoodService {
                             savedFood.getId(), e);
                 }
             }
+            evictSearchResultsCache();
             eventPublisher.publishEvent(new FoodCreatedEvent(savedFood.getId(), userId));
             log.info("Food created successfully userId={} foodId={}", userId, savedFood.getId());
             return withFavorite(foodMapper.toDto(savedFood), userId);
@@ -151,7 +152,26 @@ public class FoodService {
                 return withFavorite(findByIdUsingProxy(customCopy.get().getId()), userId);
             }
         }
-        FoodResponseDto food = findByIdUsingProxy(barcodeOrId);
+        FoodResponseDto food;
+        try {
+            // Go through the proxy first so ordinary _id lookups retain Redis caching.
+            food = findByIdUsingProxy(barcodeOrId);
+        } catch (NotFoundException notFoundById) {
+            Food resolvedFood = foodRepository.findByCode(barcodeOrId)
+                    .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
+                            "Food not found with id or code: " + barcodeOrId));
+            String resolvedId = resolvedFood.getId() != null
+                    ? resolvedFood.getId()
+                    : barcodeOrId;
+            if (userId != null && !Objects.equals(resolvedId, barcodeOrId)) {
+                Optional<Food> customCopy = foodRepository
+                        .findByOriginalFoodIdAndUserId(resolvedId, userId);
+                if (customCopy.isPresent()) {
+                    return withFavorite(findByIdUsingProxy(customCopy.get().getId()), userId);
+                }
+            }
+            food = findByIdUsingProxy(resolvedId);
+        }
         if (!canAccessFood(food, userId)) {
             throw new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
                     "Food not found with id: " + barcodeOrId);
@@ -288,6 +308,15 @@ public class FoodService {
         return attachFavorites(response, userId);
     }
 
+    public List<FoodResponseDto> findAllByIdsForAdmin(List<String> foodIds) {
+        if (foodIds == null || foodIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return foodRepository.findAllById(foodIds).stream()
+                .map(foodMapper::toDto)
+                .toList();
+    }
+
     @Transactional
     public FoodResponseDto updateFavorite(String id, Long userId, boolean favorite) {
         FoodResponseDto food = findPersonalizedById(id, userId);
@@ -346,7 +375,9 @@ public class FoodService {
             foodToProcess.setCode(newCode);
             foodToProcess.setModerationStatus(ModerationStatus.PENDING_REVIEW);
         }
-        return withFavorite(foodMapper.toDto(foodRepository.save(foodToProcess)), userId);
+        Food savedFood = foodRepository.save(foodToProcess);
+        evictSearchResultsCache();
+        return withFavorite(foodMapper.toDto(savedFood), userId);
     }
 
     @Transactional
@@ -378,12 +409,14 @@ public class FoodService {
             foodRepository.delete(pendingFood);
             evictFoodCache(pendingFoodId);
             evictFoodCache(original.getId());
+            evictSearchResultsCache();
             return foodMapper.toDto(original);
         } else {
             pendingFood.setModerationStatus(ModerationStatus.APPROVED);
             pendingFood.setVerifiedByAdmin(verifiedByAdmin);
             Food saved = foodRepository.save(pendingFood);
             evictFoodCache(saved.getId());
+            evictSearchResultsCache();
             return foodMapper.toDto(saved);
         }
     }
@@ -398,6 +431,7 @@ public class FoodService {
         pendingFood.setVerifiedByAdmin(false);
         Food saved = foodRepository.save(pendingFood);
         evictFoodCache(saved.getId());
+        evictSearchResultsCache();
         return foodMapper.toDto(saved);
     }
 
@@ -448,11 +482,16 @@ public class FoodService {
     }
 
     private boolean isSameProduct(Food existingFood, FoodRequestDto newRequest) {
-        return existingFood.getProductName().equals(newRequest.getProductName())
-                && existingFood.getBrands().equals(newRequest.getBrands())
-                && existingFood.getGenericName().equals(newRequest.getGenericName())
-                && existingFood.getNutriments().equals(
+        return Objects.equals(existingFood.getProductName(), newRequest.getProductName())
+                && Objects.equals(existingFood.getBrands(), newRequest.getBrands())
+                && Objects.equals(existingFood.getGenericName(), newRequest.getGenericName())
+                && Objects.equals(existingFood.getNutriments(),
                         nutrimentsMapper.toModel(newRequest.getNutriments()));
+    }
+
+    private Optional<Food> findFoodByIdOrCode(String idOrCode) {
+        Optional<Food> byId = foodRepository.findById(idOrCode);
+        return byId.isPresent() ? byId : foodRepository.findByCode(idOrCode);
     }
 
     private FoodResponseDto withFavorite(FoodResponseDto food, Long userId) {
@@ -536,6 +575,17 @@ public class FoodService {
             }
         } catch (Exception e) {
             log.error("Failed to evict cache", e);
+        }
+    }
+
+    private void evictSearchResultsCache() {
+        try {
+            Cache cache = cacheManager.getCache(CacheConstants.SEARCH_RESULTS);
+            if (cache != null) {
+                cache.clear();
+            }
+        } catch (Exception e) {
+            log.error("Failed to evict search results cache", e);
         }
     }
 }

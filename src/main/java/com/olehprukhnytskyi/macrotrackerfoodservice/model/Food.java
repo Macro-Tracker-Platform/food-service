@@ -8,6 +8,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
@@ -18,6 +19,12 @@ import org.springframework.data.mongodb.core.mapping.MongoId;
 @NoArgsConstructor
 @AllArgsConstructor
 @Document(collection = "foods")
+@CompoundIndex(
+        name = "user_original_food_unique",
+        def = "{'user_id': 1, 'original_food_id': 1}",
+        unique = true,
+        partialFilter = "{'original_food_id': {'$type': 'string'}}"
+)
 public class Food {
     @MongoId
     @Field(name = "_id")

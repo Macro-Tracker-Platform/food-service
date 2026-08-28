@@ -22,6 +22,8 @@ public interface FoodRepository extends MongoRepository<Food, String> {
 
     Optional<Food> findByIdAndUserId(String id, Long userId);
 
+    Optional<Food> findByCode(String code);
+
     Page<Food> findAllByModerationStatus(ModerationStatus status, Pageable pageable);
 
     @Query(value = "{ 'user_id': ?0, 'original_food_id': { $ne: null } }",

@@ -46,7 +46,6 @@ import org.springframework.web.multipart.MultipartFile;
         description = "Manage and search food products with nutrition information"
 )
 public class FoodController {
-    private static final String APP_VERSION_CODE_HEADER = "X-App-Version-Code";
     private final FoodService foodService;
     private final NutritionLabelScanService nutritionLabelScanService;
 
@@ -183,7 +182,7 @@ public class FoodController {
     public ResponseEntity<NutritionLabelScanResponseDto> scanNutritionLabel(
             @RequestPart("image") MultipartFile image,
             @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
-            @RequestHeader(value = APP_VERSION_CODE_HEADER, required = false)
+            @RequestHeader(value = CustomHeaders.X_APP_VERSION_CODE, required = false)
             String appVersionCode) {
         log.info("Scanning nutrition label for userId={}", userId);
         return ResponseEntity.ok(nutritionLabelScanService.scan(userId, appVersionCode, image));

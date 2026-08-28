@@ -9,6 +9,7 @@ import com.olehprukhnytskyi.util.ModerationStatus;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,6 +35,19 @@ import org.springframework.web.bind.annotation.RestController;
 )
 public class AdminFoodController {
     private final FoodService foodService;
+
+    @Operation(
+            summary = "Get original foods for moderation (Admin only)",
+            description = "Retrieve exact food records without user-specific substitutions"
+    )
+    @RequireRole("ADMIN")
+    @PostMapping("/batch")
+    public ResponseEntity<List<FoodResponseDto>> getFoodsDetailsForAdmin(
+            @RequestBody
+            @Size(max = 100, message = "Batch size cannot exceed 100 items")
+            List<String> foodIds) {
+        return ResponseEntity.ok(foodService.findAllByIdsForAdmin(foodIds));
+    }
 
     @Operation(
             summary = "Publish food publicly (Admin only)",

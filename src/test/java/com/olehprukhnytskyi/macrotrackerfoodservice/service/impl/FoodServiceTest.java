@@ -28,6 +28,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.OriginalIdOnly;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.FoodMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
@@ -53,6 +54,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.CacheManager;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
@@ -81,6 +83,8 @@ class FoodServiceTest {
     private ImageService imageService;
     @Mock
     private ApplicationEventPublisher applicationEventPublisher;
+    @Mock
+    private CacheManager cacheManager;
     @Spy
     private RetryTemplate retryTemplate = new RetryTemplate();
 
@@ -143,6 +147,24 @@ class FoodServiceTest {
         // Then
         assertNotNull(result);
         verify(foodRepository).findById(anyString());
+        verify(foodRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("When nullable fields match, should return existing food without failing")
+    void createFoodWithImages_whenNullableFieldsMatch_shouldReturnExistingDto() {
+        // Given
+        food.setGenericName(null);
+        foodRequestDto.setGenericName(null);
+        given(nutrimentsMapper.toModel(any())).willReturn(nutriments);
+        given(foodRepository.findById(anyString())).willReturn(Optional.of(food));
+        given(foodMapper.toDto((Food) any())).willReturn(new FoodResponseDto());
+
+        // When
+        FoodResponseDto result = foodService.createFoodWithImages(foodRequestDto, null, 1L);
+
+        // Then
+        assertNotNull(result);
         verify(foodRepository, never()).save(any());
     }
 
@@ -293,6 +315,37 @@ class FoodServiceTest {
     }
 
     @Test
+    @DisplayName("When user has a copy, search should exclude original and return the copy")
+    void findByQuery_whenUserHasCopy_shouldExcludeOriginal() {
+        // Given
+        long userId = 34L;
+        String originalId = "5900820005764";
+        Food copy = new Food();
+        copy.setId("2000000000273");
+        copy.setUserId(userId);
+        copy.setOriginalFoodId(originalId);
+
+        OriginalIdOnly originalIdProjection = () -> originalId;
+        FoodResponseDto copyDto = FoodResponseDto.builder()
+                .id(copy.getId())
+                .originalFoodId(originalId)
+                .build();
+
+        given(foodRepository.findOriginalIdsByUserId(userId))
+                .willReturn(List.of(originalIdProjection));
+        given(foodSearchDao.search("curd", userId, List.of(originalId), 0, 10))
+                .willReturn(List.of(copy));
+        given(foodMapper.toDto(List.of(copy))).willReturn(List.of(copyDto));
+
+        // When
+        FoodListCacheWrapper result = foodService.findByQuery("curd", userId, 0, 10);
+
+        // Then
+        assertEquals(List.of(copyDto), result.getItems());
+        verify(foodSearchDao).search("curd", userId, List.of(originalId), 0, 10);
+    }
+
+    @Test
     @DisplayName("When DAO throws runtime exception, Service should propagate or wrap it")
     void findByQuery_whenDaoThrowsException_shouldThrowException() {
         // Given
@@ -323,6 +376,72 @@ class FoodServiceTest {
         // When & Then
         assertThrows(NotFoundException.class,
                 () -> foodService.findPersonalizedById("private-food", 1L));
+    }
+
+    @Test
+    @DisplayName("When barcode differs from Mongo id, should resolve food by code")
+    void findPersonalizedById_whenIdDiffersFromBarcode_shouldResolveByCode() {
+        // Given
+        String barcode = "5900820005764";
+        String mongoId = "food-document-id";
+        Food original = Food.builder()
+                .id(mongoId)
+                .code(barcode)
+                .moderationStatus(ModerationStatus.APPROVED)
+                .build();
+        FoodResponseDto expected = FoodResponseDto.builder()
+                .id(mongoId)
+                .code(barcode)
+                .moderationStatus(ModerationStatus.APPROVED.name())
+                .build();
+
+        given(foodRepository.findById(barcode)).willReturn(Optional.empty());
+        given(foodRepository.findByCode(barcode)).willReturn(Optional.of(original));
+        given(foodRepository.findById(mongoId)).willReturn(Optional.of(original));
+        given(foodMapper.toDto(original)).willReturn(expected);
+
+        // When
+        FoodResponseDto result = foodService.findPersonalizedById(barcode, 34L);
+
+        // Then
+        assertEquals(expected, result);
+        verify(foodRepository).findByCode(barcode);
+    }
+
+    @Test
+    @DisplayName("When user has a copy, barcode lookup should return that copy")
+    void findPersonalizedById_whenUserHasCopy_shouldReturnCopy() {
+        // Given
+        String barcode = "5900820005764";
+        String copyId = "2000000000273";
+        Long userId = 34L;
+        Food copy = Food.builder()
+                .id(copyId)
+                .code(copyId)
+                .userId(userId)
+                .originalFoodId(barcode)
+                .moderationStatus(ModerationStatus.PENDING_REVIEW)
+                .build();
+        FoodResponseDto expected = FoodResponseDto.builder()
+                .id(copyId)
+                .code(copyId)
+                .userId(userId)
+                .originalFoodId(barcode)
+                .moderationStatus(ModerationStatus.PENDING_REVIEW.name())
+                .build();
+
+        given(foodRepository.findByOriginalFoodIdAndUserId(barcode, userId))
+                .willReturn(Optional.of(copy));
+        given(foodRepository.findById(copyId)).willReturn(Optional.of(copy));
+        given(foodMapper.toDto(copy)).willReturn(expected);
+
+        // When
+        FoodResponseDto result = foodService.findPersonalizedById(barcode, userId);
+
+        // Then
+        assertEquals(copyId, result.getId());
+        assertEquals(barcode, result.getOriginalFoodId());
+        verify(foodRepository, never()).findById(barcode);
     }
 
     @Test
@@ -500,6 +619,53 @@ class FoodServiceTest {
     }
 
     @Test
+    @DisplayName("When copy already exists, should update it instead of creating another copy")
+    void customizeAndSubmitForReview_whenCopyExists_shouldUpdateSameCopy() {
+        // Given
+        String originalId = "5900820005764";
+        String copyId = "2000000000273";
+        Long userId = 34L;
+        Food original = Food.builder()
+                .id(originalId)
+                .moderationStatus(ModerationStatus.APPROVED)
+                .build();
+        Food existingCopy = Food.builder()
+                .id(copyId)
+                .code(copyId)
+                .userId(userId)
+                .originalFoodId(originalId)
+                .moderationStatus(ModerationStatus.REJECTED)
+                .build();
+        FoodResponseDto expected = FoodResponseDto.builder()
+                .id(copyId)
+                .originalFoodId(originalId)
+                .moderationStatus(ModerationStatus.PENDING_REVIEW.name())
+                .build();
+        FoodPatchRequestDto patch = FoodPatchRequestDto.builder()
+                .productName("Updated curd cheese")
+                .build();
+
+        given(foodRepository.findById(originalId)).willReturn(Optional.of(original));
+        given(foodRepository.findByOriginalFoodIdAndUserId(originalId, userId))
+                .willReturn(Optional.of(existingCopy));
+        given(foodRepository.save(existingCopy)).willReturn(existingCopy);
+        given(foodMapper.toDto(existingCopy)).willReturn(expected);
+
+        // When
+        FoodResponseDto result = foodService
+                .customizeAndSubmitForReview(originalId, patch, userId);
+
+        // Then
+        assertEquals(copyId, result.getId());
+        assertEquals(ModerationStatus.PENDING_REVIEW, existingCopy.getModerationStatus());
+        assertFalse(existingCopy.isVerifiedByAdmin());
+        verify(foodMapper).updateFoodFromPatchDto(patch, existingCopy);
+        verify(foodMapper, never()).createCustomizedCopy(any(), anyLong());
+        verify(foodCodeGenerator, never()).resolveCode(any());
+        verify(foodRepository).save(existingCopy);
+    }
+
+    @Test
     @DisplayName("When customize source is another user's private food, should not expose it")
     void customizeAndSubmitForReview_whenSourceIsPrivateForOtherUser_shouldThrowNotFound() {
         // Given
@@ -557,6 +723,7 @@ class FoodServiceTest {
         assertFalse(original.isVerifiedByAdmin());
         assertEquals("Updated Name", original.getProductName());
         verify(foodRepository, times(1)).save(original);
+        verify(foodRepository, times(1)).delete(pending);
     }
 
     @Test
