@@ -8,6 +8,8 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.service.BarcodeScanExceptionHandler;
+import com.olehprukhnytskyi.macrotrackerfoodservice.service.BarcodeScanService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.NutritionLabelScanService;
 import com.olehprukhnytskyi.util.CustomHeaders;
@@ -48,6 +50,32 @@ import org.springframework.web.multipart.MultipartFile;
 public class FoodController {
     private final FoodService foodService;
     private final NutritionLabelScanService nutritionLabelScanService;
+    private final BarcodeScanService barcodeScanService;
+
+    @Operation(
+            summary = "Scan a food barcode",
+            description = "Resolve a barcode after atomically enforcing the user's scan allowance"
+    )
+    @PostMapping("/barcode/{barcode}/scan")
+    public ResponseEntity<FoodResponseDto> scanBarcode(
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
+            @PathVariable String barcode) {
+        BarcodeScanService.ScanResult result = barcodeScanService.scan(userId, barcode);
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok();
+        if (result.quota().isUnlimited()) {
+            response.header("X-Barcode-Scan-Unlimited", "true");
+        } else {
+            response.header(BarcodeScanExceptionHandler.LIMIT_HEADER,
+                    String.valueOf(result.quota().getLimit()));
+            response.header(BarcodeScanExceptionHandler.REMAINING_HEADER,
+                    String.valueOf(result.quota().getRemaining()));
+            if (result.quota().getResetAt() != null) {
+                response.header(BarcodeScanExceptionHandler.RESET_AT_HEADER,
+                        result.quota().getResetAt().toString());
+            }
+        }
+        return response.body(result.food());
+    }
 
     @Operation(
             summary = "Get food by ID",
@@ -58,7 +86,7 @@ public class FoodController {
             @RequestHeader(value = CustomHeaders.X_USER_ID) Long userId,
             @PathVariable String id) {
         log.info("Fetching food by id={}", id);
-        FoodResponseDto food = foodService.findPersonalizedById(id, userId);
+        FoodResponseDto food = foodService.findPersonalizedByInternalId(id, userId);
         log.debug("Food retrieved successfully for id={}", id);
         return ResponseEntity.ok(food);
     }

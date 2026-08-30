@@ -179,6 +179,21 @@ public class FoodService {
         return withFavorite(food, userId);
     }
 
+    public FoodResponseDto findPersonalizedByInternalId(String id, Long userId) {
+        if (userId != null) {
+            Optional<Food> customCopy = foodRepository.findByOriginalFoodIdAndUserId(id, userId);
+            if (customCopy.isPresent()) {
+                return withFavorite(findByIdUsingProxy(customCopy.get().getId()), userId);
+            }
+        }
+        FoodResponseDto food = findByIdUsingProxy(id);
+        if (!canAccessFood(food, userId)) {
+            throw new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
+                    "Food not found with id: " + id);
+        }
+        return withFavorite(food, userId);
+    }
+
     public List<FoodResponseDto> findAllByUserId(Long userId, int offset, int limit) {
         if (offset % limit != 0) {
             throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
@@ -319,7 +334,7 @@ public class FoodService {
 
     @Transactional
     public FoodResponseDto updateFavorite(String id, Long userId, boolean favorite) {
-        FoodResponseDto food = findPersonalizedById(id, userId);
+        FoodResponseDto food = findPersonalizedByInternalId(id, userId);
         if (favorite) {
             if (!userFoodFavoriteRepository.existsByUserIdAndFoodId(userId, food.getId())) {
                 userFoodFavoriteRepository.save(UserFoodFavorite.builder()
