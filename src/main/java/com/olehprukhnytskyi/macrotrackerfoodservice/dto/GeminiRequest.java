@@ -1,6 +1,7 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.dto;
 
 import java.util.List;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -49,12 +50,27 @@ public class GeminiRequest {
 
     @Data
     @NoArgsConstructor
-    @AllArgsConstructor
     public static class GenerationConfig {
         private Double temperature;
         private Integer maxOutputTokens;
         private String responseMimeType;
         private ThinkingConfig thinkingConfig;
+        private Map<String, Object> responseSchema;
+
+        public GenerationConfig(Double temperature, Integer maxOutputTokens,
+                                String responseMimeType, ThinkingConfig thinkingConfig) {
+            this(temperature, maxOutputTokens, responseMimeType, thinkingConfig, null);
+        }
+
+        public GenerationConfig(Double temperature, Integer maxOutputTokens,
+                                String responseMimeType, ThinkingConfig thinkingConfig,
+                                Map<String, Object> responseSchema) {
+            this.temperature = temperature;
+            this.maxOutputTokens = maxOutputTokens;
+            this.responseMimeType = responseMimeType;
+            this.thinkingConfig = thinkingConfig;
+            this.responseSchema = responseSchema;
+        }
     }
 
     @Data

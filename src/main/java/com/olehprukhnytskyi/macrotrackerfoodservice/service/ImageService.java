@@ -3,6 +3,7 @@ package com.olehprukhnytskyi.macrotrackerfoodservice.service;
 import com.olehprukhnytskyi.exception.BadRequestException;
 import com.olehprukhnytskyi.exception.InternalServerException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
+import com.olehprukhnytskyi.macrotrackerfoodservice.properties.GeminiProperties;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -15,6 +16,7 @@ import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.Thumbnails;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -22,11 +24,21 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class ImageService {
     private static final long MAX_FILE_SIZE = 5 * 1024 * 1024;
+    private static final long DEFAULT_MAX_DECODED_PIXELS = 20_000_000;
     private static final List<String> ALLOWED_CONTENT_TYPES = List.of(
             "image/jpeg",
             "image/png",
             "image/webp"
     );
+    private long maxDecodedPixels = DEFAULT_MAX_DECODED_PIXELS;
+
+    public ImageService() {
+    }
+
+    @Autowired
+    public ImageService(GeminiProperties properties) {
+        maxDecodedPixels = properties.getFoodPhotoScan().getMaxDecodedPixels();
+    }
 
     public void validateImage(MultipartFile image) {
         if (image.isEmpty()) {
@@ -40,6 +52,7 @@ public class ImageService {
             throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
                     "File size must not exceed 5 MB");
         }
+        validateDimensions(image);
     }
 
     public ByteArrayInputStream resizeImage(MultipartFile file, int size) {
@@ -56,6 +69,32 @@ public class ImageService {
             log.error("Image resize failed", e);
             throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
                     "Failed to resize image", e);
+        }
+    }
+
+    private void validateDimensions(MultipartFile image) {
+        try (InputStream input = image.getInputStream();
+                ImageInputStream imageInput = ImageIO.createImageInputStream(input)) {
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(imageInput);
+            if (!readers.hasNext()) {
+                throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
+                        "Unsupported image format");
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(imageInput, true, true);
+                long pixels = Math.multiplyExact(
+                        (long) reader.getWidth(0), (long) reader.getHeight(0));
+                if (pixels > maxDecodedPixels) {
+                    throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
+                            "Image dimensions are too large");
+                }
+            } finally {
+                reader.dispose();
+            }
+        } catch (ArithmeticException | IOException exception) {
+            throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
+                    "Invalid image dimensions");
         }
     }
 

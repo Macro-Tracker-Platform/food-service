@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.client.GeminiClient;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.GeminiFoodPhotoScanDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.GeminiRequest;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.GeminiResponse;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
@@ -193,6 +194,39 @@ class GeminiServiceTest {
                 result.getNutriments().getFatPer100());
         assertEquals(BigDecimal.valueOf(8.6),
                 result.getNutriments().getProteinPer100());
+    }
+
+    @Test
+    @DisplayName("Food photo scans should request and parse strict structured JSON")
+    void scanFoodPhoto_shouldUseResponseSchemaAndParseJson() {
+        MultipartFile image = new MockMultipartFile(
+                "image", "meal.jpg", "image/jpeg", new byte[] {9});
+        GeminiProperties.FoodPhotoScan scanProperties =
+                new GeminiProperties.FoodPhotoScan();
+        when(geminiProperties.getApiKey()).thenReturn("test-key");
+        when(geminiProperties.getFoodPhotoPrompt()).thenReturn("Identify foods.");
+        when(geminiProperties.getFoodPhotoScan()).thenReturn(scanProperties);
+        when(imageService.resizeImageToJpegBytes(any(), any(Integer.class),
+                any(Integer.class), any(Double.class))).thenReturn(new byte[] {1, 2, 3});
+        when(geminiClient.generateContent(eq("test-key"), any()))
+                .thenReturn(nutritionLabelResponse("""
+                        {"scan_type":"food","image_quality":"usable",
+                        "items":[{"name":"chicken breast",
+                        "estimated_weight_grams":150,"confidence_score":0.95,
+                        "fallback_nutrition":{"calories":248,"protein_g":46,
+                        "fat_g":5,"carbs_g":0}}]}
+                        """));
+
+        GeminiFoodPhotoScanDto result = geminiService.scanFoodPhoto(image);
+
+        ArgumentCaptor<GeminiRequest> requestCaptor =
+                ArgumentCaptor.forClass(GeminiRequest.class);
+        verify(geminiClient).generateContent(eq("test-key"), requestCaptor.capture());
+        assertEquals("food", result.getScanType());
+        assertEquals("chicken breast", result.getItems().getFirst().getName());
+        assertNotNull(requestCaptor.getValue().getGenerationConfig().getResponseSchema());
+        assertEquals("application/json",
+                requestCaptor.getValue().getGenerationConfig().getResponseMimeType());
     }
 
     private void mockNutritionLabelScanRequest() {

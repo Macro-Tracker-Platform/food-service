@@ -184,6 +184,67 @@ public class FoodSearchDao {
         return MAX_DIVERSITY_CANDIDATES;
     }
 
+    public List<Food> searchPhotoCandidates(List<String> queries, Long userId,
+                                            int limitPerItem) {
+        List<String> cleaned = queries == null ? List.of() : queries.stream()
+                .filter(Objects::nonNull)
+                .map(this::cleanQuery)
+                .filter(query -> !query.isBlank())
+                .distinct()
+                .toList();
+        if (cleaned.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int size = Math.min(50, Math.max(limitPerItem, cleaned.size() * limitPerItem));
+        try {
+            Query query = Query.of(q -> q.bool(mainBool -> {
+                cleaned.forEach(cleanQuery -> mainBool.should(should -> should.multiMatch(mm -> mm
+                        .fields("product_name^8", "generic_name^5", "_keywords^3", "brands^2")
+                        .query(cleanQuery)
+                        .operator(Operator.Or)
+                        .fuzziness("AUTO")
+                )));
+                mainBool.minimumShouldMatch("1");
+                mainBool.filter(filter -> filter.bool(filterBool -> {
+                    filterBool.should(s -> s.match(m -> m.field("moderation_status")
+                            .query("APPROVED")));
+                    filterBool.should(s -> s.bool(b -> b
+                            .mustNot(mn -> mn.exists(e -> e.field("user_id")))
+                    ));
+                    if (userId != null) {
+                        filterBool.should(s -> s.term(t -> t.field("user_id").value(userId)));
+                    }
+                    filterBool.minimumShouldMatch("1");
+                    return filterBool;
+                }));
+                return mainBool;
+            }));
+            SearchResponse<Food> response = elasticsearchClient.search(
+                    search -> search.index("macro_tracker.foods")
+                            .query(query)
+                            .size(size),
+                    Food.class
+            );
+            if (response == null || response.hits() == null
+                    || response.hits().hits() == null) {
+                return Collections.emptyList();
+            }
+            return response.hits().hits().stream()
+                    .map(hit -> {
+                        Food food = hit.source();
+                        if (food != null) {
+                            food.setId(hit.id());
+                        }
+                        return food;
+                    })
+                    .filter(Objects::nonNull)
+                    .toList();
+        } catch (IOException exception) {
+            throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
+                    "Failed to execute food photo search", exception);
+        }
+    }
+
     List<Food> rankCandidates(List<Food> foods, String cleanQuery) {
         List<String> queryTokens = queryTokens(cleanQuery);
         return foods.stream()

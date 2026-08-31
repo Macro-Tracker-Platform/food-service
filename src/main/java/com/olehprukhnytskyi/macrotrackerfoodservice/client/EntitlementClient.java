@@ -2,6 +2,7 @@ package com.olehprukhnytskyi.macrotrackerfoodservice.client;
 
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.BarcodeScanQuotaDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.EntitlementDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoScanCreditDto;
 import com.olehprukhnytskyi.util.CustomHeaders;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,4 +24,17 @@ public interface EntitlementClient {
     BarcodeScanQuotaDto reserveBarcodeScan(
             @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
             @PathVariable String barcode);
+
+    @GetMapping("/api/users/me/food-photo-scans/credits")
+    FoodPhotoScanCreditDto getFoodPhotoScanCredits(
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId);
+
+    @PostMapping("/api/users/me/food-photo-scans/consume")
+    FoodPhotoScanCreditDto consumeFoodPhotoScanCredit(
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey);
+
+    default FoodPhotoScanCreditDto consumeFoodPhotoScanCredit(Long userId) {
+        return consumeFoodPhotoScanCredit(userId, null);
+    }
 }

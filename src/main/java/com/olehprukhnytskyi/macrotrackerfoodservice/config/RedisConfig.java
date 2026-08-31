@@ -46,6 +46,10 @@ public class RedisConfig {
         configs.put(CacheConstants.SEARCH_SUGGESTIONS, defaultConfig
                 .entryTtl(Duration.ofMinutes(30)));
         configs.put(CacheConstants.SEARCH_RESULTS, defaultConfig.entryTtl(Duration.ofMinutes(30)));
+        configs.put(CacheConstants.FOOD_PHOTO_HISTORY,
+                defaultConfig.entryTtl(Duration.ofMinutes(2)));
+        configs.put(CacheConstants.FOOD_PHOTO_ENTITLEMENT,
+                defaultConfig.entryTtl(Duration.ofSeconds(15)));
 
         return RedisCacheManager.builder(cf)
                 .cacheDefaults(defaultConfig)

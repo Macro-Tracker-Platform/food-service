@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.olehprukhnytskyi.exception.ExternalServiceException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
 import com.olehprukhnytskyi.macrotrackerfoodservice.client.GeminiClient;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.GeminiFoodPhotoScanDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.GeminiRequest;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.GeminiResponse;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
@@ -12,6 +13,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.exception.GeminiTemporaryUna
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.properties.GeminiProperties;
 import feign.FeignException;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZonedDateTime;
@@ -82,6 +84,29 @@ public class GeminiService {
         }
     }
 
+    public GeminiFoodPhotoScanDto scanFoodPhoto(MultipartFile image) {
+        GeminiRequest request = createFoodPhotoScanRequest(image);
+        Instant startedAt = Instant.now();
+        try {
+            log.debug("Requesting Gemini food photo scan");
+            GeminiResponse response = geminiClient.generateContent(
+                    geminiProperties.getApiKey(), request);
+            logUsage("food-photo", startedAt, response);
+            return parseFoodPhotoResponse(response);
+        } catch (FeignException e) {
+            log.warn("Gemini food photo scan failed after {}ms with status={}",
+                    Duration.between(startedAt, Instant.now()).toMillis(), e.status());
+            if (isTemporaryGeminiFailure(e)) {
+                throw new GeminiTemporaryUnavailableException(retryAfterSeconds(e), e);
+            }
+            throw new ExternalServiceException(
+                    CommonErrorCode.UPSTREAM_SERVICE_UNAVAILABLE,
+                    "Gemini food photo scan failed",
+                    e
+            );
+        }
+    }
+
     private List<String> extractKeywords(GeminiResponse response, String productName) {
         if (response == null
                 || response.getCandidates() == null
@@ -137,6 +162,155 @@ public class GeminiService {
                 new GeminiRequest.ThinkingConfig(scanProperties.getThinkingBudget())
         ));
         return request;
+    }
+
+    private GeminiRequest createFoodPhotoScanRequest(MultipartFile image) {
+        GeminiProperties.FoodPhotoScan scanProperties = geminiProperties.getFoodPhotoScan();
+        byte[] imageBytes = imageService.resizeImageToJpegBytes(
+                image,
+                scanProperties.getMaxImageWidth(),
+                scanProperties.getMaxImageHeight(),
+                scanProperties.getImageQuality()
+        );
+        String base64Image = Base64.getEncoder().encodeToString(imageBytes);
+        GeminiRequest request = new GeminiRequest(List.of(
+                new GeminiRequest.Content(List.of(
+                        new GeminiRequest.Part(geminiProperties.getFoodPhotoPrompt()),
+                        new GeminiRequest.Part(new GeminiRequest.InlineData(
+                                GEMINI_IMAGE_MIME_TYPE, base64Image))
+                ))
+        ));
+        request.setGenerationConfig(new GeminiRequest.GenerationConfig(
+                scanProperties.getTemperature(),
+                scanProperties.getMaxOutputTokens(),
+                scanProperties.getResponseMimeType(),
+                new GeminiRequest.ThinkingConfig(scanProperties.getThinkingBudget()),
+                foodPhotoResponseSchema()
+        ));
+        return request;
+    }
+
+    private Map<String, Object> foodPhotoResponseSchema() {
+        Map<String, Object> nutrition = Map.of(
+                "type", "object",
+                "additionalProperties", false,
+                "required", List.of("calories", "protein_g", "fat_g", "carbs_g"),
+                "properties", Map.of(
+                        "calories", nonNegativeNumberSchema(),
+                        "protein_g", nonNegativeNumberSchema(),
+                        "fat_g", nonNegativeNumberSchema(),
+                        "carbs_g", nonNegativeNumberSchema()
+                )
+        );
+        Map<String, Object> item = Map.of(
+                "type", "object",
+                "additionalProperties", false,
+                "required", List.of("name", "estimated_weight_grams",
+                        "confidence_score", "fallback_nutrition"),
+                "properties", Map.of(
+                        "name", Map.of("type", "string"),
+                        "estimated_weight_grams", Map.of(
+                                "type", "number", "minimum", 0),
+                        "confidence_score", Map.of(
+                                "type", "number", "minimum", 0, "maximum", 1),
+                        "fallback_nutrition", nutrition
+                )
+        );
+        return Map.of(
+                "type", "object",
+                "additionalProperties", false,
+                "required", List.of("scan_type", "image_quality", "items"),
+                "properties", Map.of(
+                        "scan_type", Map.of(
+                                "type", "string",
+                                "enum", List.of("food", "barcode", "not_food")),
+                        "image_quality", Map.of(
+                                "type", "string",
+                                "enum", List.of("usable", "blurred")),
+                        "items", Map.of("type", "array", "items", item)
+                )
+        );
+    }
+
+    private Map<String, Object> nonNegativeNumberSchema() {
+        return Map.of("type", "number", "minimum", 0);
+    }
+
+    private GeminiFoodPhotoScanDto parseFoodPhotoResponse(GeminiResponse response) {
+        String text = extractFirstText(response).trim();
+        try {
+            GeminiFoodPhotoScanDto parsed = objectMapper.readValue(
+                    text, GeminiFoodPhotoScanDto.class);
+            validateFoodPhotoResponse(parsed);
+            return parsed;
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            log.error("Failed to parse Gemini food photo response", exception);
+            throw new ExternalServiceException(
+                    CommonErrorCode.UPSTREAM_SERVICE_UNAVAILABLE,
+                    "Gemini returned an invalid food photo response",
+                    exception
+            );
+        }
+    }
+
+    private void validateFoodPhotoResponse(GeminiFoodPhotoScanDto response) {
+        if (response == null || !List.of("food", "barcode", "not_food")
+                .contains(response.getScanType())) {
+            throw new IllegalArgumentException("Invalid scan_type");
+        }
+        if (!List.of("usable", "blurred").contains(response.getImageQuality())) {
+            throw new IllegalArgumentException("Invalid image_quality");
+        }
+        List<GeminiFoodPhotoScanDto.Item> items = response.getItems();
+        if ("blurred".equals(response.getImageQuality())) {
+            if (items == null || !items.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Blurred scans must contain an empty items array");
+            }
+            return;
+        }
+        if (items == null || (!"food".equals(response.getScanType()) && !items.isEmpty())) {
+            throw new IllegalArgumentException("Non-food scans must contain an empty items array");
+        }
+        if (!"food".equals(response.getScanType())) {
+            return;
+        }
+        if (items.isEmpty()) {
+            throw new IllegalArgumentException("Food scan must contain at least one item");
+        }
+        for (GeminiFoodPhotoScanDto.Item item : items) {
+            if (item == null || item.getName() == null || item.getName().isBlank()
+                    || !inRange(item.getEstimatedWeightGrams(), BigDecimal.ZERO, null)
+                    || !inRange(item.getConfidenceScore(), BigDecimal.ZERO, BigDecimal.ONE)
+                    || item.getFallbackNutrition() == null
+                    || !validNutrition(item.getFallbackNutrition())) {
+                throw new IllegalArgumentException("Invalid food item in Gemini response");
+            }
+        }
+    }
+
+    private boolean validNutrition(GeminiFoodPhotoScanDto.FallbackNutrition nutrition) {
+        return inRange(nutrition.getCalories(), BigDecimal.ZERO, null)
+                && inRange(nutrition.getProteinG(), BigDecimal.ZERO, null)
+                && inRange(nutrition.getFatG(), BigDecimal.ZERO, null)
+                && inRange(nutrition.getCarbsG(), BigDecimal.ZERO, null);
+    }
+
+    private boolean inRange(BigDecimal value, BigDecimal minimum, BigDecimal maximum) {
+        return value != null && value.compareTo(minimum) >= 0
+                && (maximum == null || value.compareTo(maximum) <= 0);
+    }
+
+    private void logUsage(String operation, Instant startedAt, GeminiResponse response) {
+        GeminiResponse.UsageMetadata usage = response == null
+                ? null : response.getUsageMetadata();
+        log.info("Gemini operation={} latency_ms={} prompt_tokens={} output_tokens={} "
+                        + "total_tokens={}",
+                operation,
+                Duration.between(startedAt, Instant.now()).toMillis(),
+                usage == null ? null : usage.getPromptTokenCount(),
+                usage == null ? null : usage.getCandidatesTokenCount(),
+                usage == null ? null : usage.getTotalTokenCount());
     }
 
     private NutritionLabelScanResponseDto parseNutritionLabelResponse(GeminiResponse response) {

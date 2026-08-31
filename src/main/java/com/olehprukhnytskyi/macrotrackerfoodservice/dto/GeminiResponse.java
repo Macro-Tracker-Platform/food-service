@@ -10,6 +10,11 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class GeminiResponse {
     private List<Candidate> candidates;
+    private UsageMetadata usageMetadata;
+
+    public GeminiResponse(List<Candidate> candidates) {
+        this.candidates = candidates;
+    }
 
     @Data
     @NoArgsConstructor
@@ -30,5 +35,14 @@ public class GeminiResponse {
     @AllArgsConstructor
     public static class Part {
         private String text;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class UsageMetadata {
+        private Integer promptTokenCount;
+        private Integer candidatesTokenCount;
+        private Integer totalTokenCount;
     }
 }

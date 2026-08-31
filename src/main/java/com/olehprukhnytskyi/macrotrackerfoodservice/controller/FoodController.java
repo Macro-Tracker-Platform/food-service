@@ -5,11 +5,14 @@ import com.olehprukhnytskyi.dto.PagedResponse;
 import com.olehprukhnytskyi.dto.Pagination;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodFavoriteRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoBase64RequestDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoScanResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.BarcodeScanExceptionHandler;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.BarcodeScanService;
+import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodPhotoScanService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.NutritionLabelScanService;
 import com.olehprukhnytskyi.util.CustomHeaders;
@@ -51,6 +54,7 @@ public class FoodController {
     private final FoodService foodService;
     private final NutritionLabelScanService nutritionLabelScanService;
     private final BarcodeScanService barcodeScanService;
+    private final FoodPhotoScanService foodPhotoScanService;
 
     @Operation(
             summary = "Scan a food barcode",
@@ -214,6 +218,45 @@ public class FoodController {
             String appVersionCode) {
         log.info("Scanning nutrition label for userId={}", userId);
         return ResponseEntity.ok(nutritionLabelScanService.scan(userId, appVersionCode, image));
+    }
+
+    @Operation(
+            summary = "Scan a food photo",
+            description = "Identify foods, estimate portions, and match them to logged "
+                    + "or global foods"
+    )
+    @PostMapping(
+            value = "/photo-scan",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResponseEntity<FoodPhotoScanResponseDto> scanFoodPhoto(
+            @RequestPart("image") MultipartFile image,
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
+            @RequestHeader(value = CustomHeaders.X_APP_VERSION_CODE, required = false)
+            String appVersionCode,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String idempotencyKey) {
+        return ResponseEntity.ok(foodPhotoScanService.scan(
+                userId, appVersionCode, idempotencyKey, image));
+    }
+
+    @Operation(
+            summary = "Scan a base64 food photo",
+            description = "JSON/base64 alternative to the multipart food photo endpoint"
+    )
+    @PostMapping(
+            value = "/photo-scan",
+            consumes = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<FoodPhotoScanResponseDto> scanFoodPhotoBase64(
+            @Valid @RequestBody FoodPhotoBase64RequestDto request,
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
+            @RequestHeader(value = CustomHeaders.X_APP_VERSION_CODE, required = false)
+            String appVersionCode,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String idempotencyKey) {
+        return ResponseEntity.ok(foodPhotoScanService.scan(
+                userId, appVersionCode, idempotencyKey, request));
     }
 
     @Operation(
