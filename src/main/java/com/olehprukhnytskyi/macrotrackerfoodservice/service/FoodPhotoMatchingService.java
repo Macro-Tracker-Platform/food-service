@@ -26,9 +26,11 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class FoodPhotoMatchingService {
     private static final Pattern DIACRITICS = Pattern.compile("\\p{M}");
+    private static final Pattern PARENTHETICAL = Pattern.compile("\\s*\\([^)]*\\)");
     private static final Pattern NON_WORD = Pattern.compile("[^\\p{L}\\p{N}\\s]");
     private static final Pattern SPACES = Pattern.compile("\\s+");
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
+    private static final BigDecimal CALORIE_MISMATCH_LIMIT = new BigDecimal("0.35");
 
     private final FoodPhotoHistoryLoader historyLoader;
     private final FoodSearchDao foodSearchDao;
@@ -38,7 +40,7 @@ public class FoodPhotoMatchingService {
             Long userId, List<GeminiFoodPhotoScanDto.Item> items) {
         List<Food> history = historyLoader.load(userId);
         List<Match> historyMatches = items.stream()
-                .map(item -> bestMatch(matchingName(item), history))
+                .map(item -> bestMatch(item, history))
                 .toList();
         List<String> unresolved = new ArrayList<>();
         for (int index = 0; index < items.size(); index++) {
@@ -51,7 +53,7 @@ public class FoodPhotoMatchingService {
         for (int index = 0; index < items.size(); index++) {
             GeminiFoodPhotoScanDto.Item item = items.get(index);
             Match historyMatch = historyMatches.get(index);
-            Match globalMatch = bestMatch(matchingName(item), globalCandidates);
+            Match globalMatch = bestMatch(item, globalCandidates);
             Match best = globalMatch.score() >= historyMatch.score()
                     ? globalMatch : historyMatch;
             if (best.food() != null && best.score() >= threshold()
@@ -65,8 +67,9 @@ public class FoodPhotoMatchingService {
     }
 
     private String matchingName(GeminiFoodPhotoScanDto.Item item) {
-        return item.getSearchName() == null || item.getSearchName().isBlank()
+        String name = item.getSearchName() == null || item.getSearchName().isBlank()
                 ? item.getName() : item.getSearchName();
+        return cleanName(name);
     }
 
     private List<Food> loadGlobalCandidates(Long userId, List<String> names) {
@@ -86,9 +89,13 @@ public class FoodPhotoMatchingService {
         }
     }
 
-    private Match bestMatch(String query, List<Food> foods) {
+    private Match bestMatch(GeminiFoodPhotoScanDto.Item item, List<Food> foods) {
+        String query = matchingName(item);
         Match best = new Match(null, 0.0);
         for (Food food : foods) {
+            if (!hasUsableNutrients(food) || !caloriesCompatible(item, food)) {
+                continue;
+            }
             double score = similarity(query, food.getProductName());
             score = Math.max(score, similarity(query, food.getGenericName()));
             if (score > best.score()) {
@@ -106,7 +113,7 @@ public class FoodPhotoMatchingService {
                 .divide(ONE_HUNDRED, 8, RoundingMode.HALF_UP);
         return baseItem(item, match.score())
                 .id(food.getId())
-                .name(food.getProductName())
+                .name(cleanName(food.getProductName()))
                 .source("db_matched")
                 .calories(scale(nutrients.getCaloriesPer100(), factor))
                 .proteinG(scale(nutrients.getProteinPer100(), factor))
@@ -120,7 +127,7 @@ public class FoodPhotoMatchingService {
         GeminiFoodPhotoScanDto.FallbackNutrition nutrients = item.getFallbackNutrition();
         return baseItem(item, score)
                 .id(null)
-                .name(item.getName())
+                .name(cleanName(item.getName()))
                 .source("ai_fallback")
                 .calories(nutritionValue(nutrients.getCalories()))
                 .proteinG(nutritionValue(nutrients.getProteinG()))
@@ -133,9 +140,31 @@ public class FoodPhotoMatchingService {
             GeminiFoodPhotoScanDto.Item item, double score) {
         return FoodPhotoScanResponseDto.Item.builder()
                 .tempId(UUID.randomUUID())
-                .searchQuery(item.getName())
+                .searchQuery(cleanName(item.getName()))
                 .weightG(item.getEstimatedWeightGrams().setScale(1, RoundingMode.HALF_UP))
                 .matchScore(BigDecimal.valueOf(score).setScale(4, RoundingMode.HALF_UP));
+    }
+
+    private boolean hasUsableNutrients(Food food) {
+        return food != null
+                && food.getNutriments() != null
+                && food.getNutriments().getCaloriesPer100() != null;
+    }
+
+    private boolean caloriesCompatible(GeminiFoodPhotoScanDto.Item item, Food food) {
+        GeminiFoodPhotoScanDto.FallbackNutrition fallback = item.getFallbackNutrition();
+        if (fallback == null || fallback.getCalories() == null
+                || fallback.getCalories().signum() <= 0
+                || item.getEstimatedWeightGrams() == null
+                || item.getEstimatedWeightGrams().signum() <= 0) {
+            return true;
+        }
+        BigDecimal candidateCalories = food.getNutriments().getCaloriesPer100()
+                .multiply(item.getEstimatedWeightGrams())
+                .divide(ONE_HUNDRED, 8, RoundingMode.HALF_UP);
+        BigDecimal deviation = candidateCalories.subtract(fallback.getCalories()).abs()
+                .divide(fallback.getCalories(), 8, RoundingMode.HALF_UP);
+        return deviation.compareTo(CALORIE_MISMATCH_LIMIT) <= 0;
     }
 
     private BigDecimal scale(BigDecimal per100, BigDecimal factor) {
@@ -200,10 +229,19 @@ public class FoodPhotoMatchingService {
         if (value == null || value.isBlank()) {
             return "";
         }
-        String normalized = Normalizer.normalize(value, Normalizer.Form.NFD);
+        String normalized = Normalizer.normalize(cleanName(value), Normalizer.Form.NFD);
         normalized = DIACRITICS.matcher(normalized).replaceAll("");
         normalized = NON_WORD.matcher(normalized.toLowerCase(Locale.ROOT)).replaceAll(" ");
         return SPACES.matcher(normalized).replaceAll(" ").trim();
+    }
+
+    private String cleanName(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String withoutParentheses = PARENTHETICAL.matcher(value).replaceAll(" ");
+        String cleaned = SPACES.matcher(withoutParentheses).replaceAll(" ").trim();
+        return cleaned.isEmpty() ? value.trim() : cleaned;
     }
 
     private double threshold() {

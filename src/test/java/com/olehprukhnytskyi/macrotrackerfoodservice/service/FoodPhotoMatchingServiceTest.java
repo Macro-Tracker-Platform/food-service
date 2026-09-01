@@ -73,6 +73,43 @@ class FoodPhotoMatchingServiceTest {
         assertThat(result.getCalories()).isEqualByComparingTo("230.00");
     }
 
+    @Test
+    void stripsParentheticalQualifiersFromRecognizedNames() {
+        GeminiFoodPhotoScanDto.Item visionItem = item("Tuna (canned, drained)", "100");
+        when(historyLoader.load(7L)).thenReturn(List.of());
+        when(searchDao.searchPhotoCandidates(List.of("Tuna"), 7L, 10))
+                .thenReturn(List.of());
+
+        FoodPhotoScanResponseDto.Item result = service.process(7L, List.of(visionItem)).getFirst();
+
+        assertThat(result.getName()).isEqualTo("Tuna");
+        assertThat(result.getSearchQuery()).isEqualTo("Tuna");
+    }
+
+    @Test
+    void strongNameMatchWithLargeCalorieMismatchUsesFallback() {
+        Food food = Food.builder()
+                .id("food-1")
+                .productName("Chicken Breast")
+                .nutriments(Nutriments.builder()
+                        .caloriesPer100(new BigDecimal("500"))
+                        .proteinPer100(new BigDecimal("31"))
+                        .fatPer100(new BigDecimal("3.6"))
+                        .carbohydratesPer100(BigDecimal.ZERO)
+                        .build())
+                .build();
+        GeminiFoodPhotoScanDto.Item visionItem = item("Chicken Breast", "150");
+        when(historyLoader.load(7L)).thenReturn(List.of(food));
+        when(searchDao.searchPhotoCandidates(List.of("Chicken Breast"), 7L, 10))
+                .thenReturn(List.of(food));
+
+        FoodPhotoScanResponseDto.Item result = service.process(7L, List.of(visionItem)).getFirst();
+
+        assertThat(result.getSource()).isEqualTo("ai_fallback");
+        assertThat(result.getId()).isNull();
+        assertThat(result.getCalories()).isEqualByComparingTo("230.00");
+    }
+
     private GeminiFoodPhotoScanDto.Item item(String name, String weight) {
         return GeminiFoodPhotoScanDto.Item.builder()
                 .name(name)
