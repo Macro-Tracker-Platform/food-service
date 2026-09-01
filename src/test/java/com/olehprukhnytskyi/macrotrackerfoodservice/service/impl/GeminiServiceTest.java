@@ -213,19 +213,25 @@ class GeminiServiceTest {
         when(geminiClient.generateContent(eq("test-key"), any()))
                 .thenReturn(nutritionLabelResponse("""
                         {"scan_type":"food","image_quality":"usable",
-                        "items":[{"name":"chicken breast",
+                        "items":[{"name":"Куряча грудка","search_name":"chicken breast",
                         "estimated_weight_grams":150,"confidence_score":0.95,
                         "fallback_nutrition":{"calories":248,"protein_g":46,
                         "fat_g":5,"carbs_g":0}}]}
                         """));
 
-        GeminiFoodPhotoScanDto result = geminiService.scanFoodPhoto(image);
+        GeminiFoodPhotoScanDto result = geminiService.scanFoodPhoto(
+                image, "uk-UA,uk;q=0.9,en;q=0.8");
 
         ArgumentCaptor<GeminiRequest> requestCaptor =
                 ArgumentCaptor.forClass(GeminiRequest.class);
         verify(geminiClient).generateContent(eq("test-key"), requestCaptor.capture());
         assertEquals("food", result.getScanType());
-        assertEquals("chicken breast", result.getItems().getFirst().getName());
+        assertEquals("Куряча грудка", result.getItems().getFirst().getName());
+        assertEquals("chicken breast", result.getItems().getFirst().getSearchName());
+        String prompt = requestCaptor.getValue().getContents().getFirst()
+                .getParts().getFirst().getText();
+        assertTrue(prompt.contains("Ukrainian"));
+        assertTrue(prompt.contains("uk-UA"));
         assertNotNull(requestCaptor.getValue().getGenerationConfig().getResponseSchema());
         Map<String, Object> responseSchema =
                 requestCaptor.getValue().getGenerationConfig().getResponseSchema();

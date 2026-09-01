@@ -72,7 +72,7 @@ class FoodPhotoScanServiceTest {
         assertThatThrownBy(() -> service.scan(42L, null, image))
                 .isInstanceOf(FoodPhotoScanLimitException.class);
 
-        verify(geminiService, never()).scanFoodPhoto(image);
+        verify(geminiService, never()).scanFoodPhoto(image, null);
     }
 
     @Test
@@ -85,7 +85,7 @@ class FoodPhotoScanServiceTest {
         when(entitlementService.get(42L, null)).thenReturn(entitlement);
         when(quotaService.reserve(42L, true, "operation-1"))
                 .thenReturn(reservation);
-        when(geminiService.scanFoodPhoto(image)).thenReturn(
+        when(geminiService.scanFoodPhoto(image, null)).thenReturn(
                 GeminiFoodPhotoScanDto.builder()
                         .scanType("not_food")
                         .imageQuality("usable")
@@ -117,7 +117,7 @@ class FoodPhotoScanServiceTest {
         when(entitlementService.get(42L, null)).thenReturn(entitlement);
         when(quotaService.reserve(42L, false, "operation-1"))
                 .thenReturn(reservation);
-        when(geminiService.scanFoodPhoto(image)).thenReturn(
+        when(geminiService.scanFoodPhoto(image, null)).thenReturn(
                 GeminiFoodPhotoScanDto.builder()
                         .scanType("food")
                         .imageQuality("usable")
@@ -146,7 +146,7 @@ class FoodPhotoScanServiceTest {
         when(entitlementService.get(42L, null)).thenReturn(entitlement);
         when(quotaService.reserve(42L, false, "operation-1"))
                 .thenReturn(reservation);
-        when(geminiService.scanFoodPhoto(image)).thenReturn(
+        when(geminiService.scanFoodPhoto(image, null)).thenReturn(
                 GeminiFoodPhotoScanDto.builder()
                         .scanType("food")
                         .imageQuality("blurred")

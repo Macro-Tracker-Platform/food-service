@@ -24,6 +24,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class GeminiService {
     private static final String GEMINI_IMAGE_MIME_TYPE = "image/jpeg";
+    private static final String DEFAULT_FOOD_NAME_LANGUAGE = "en";
     private static final int MAX_UPSTREAM_ERROR_LOG_LENGTH = 1_000;
     private final GeminiClient geminiClient;
     private final GeminiProperties geminiProperties;
@@ -86,10 +88,15 @@ public class GeminiService {
     }
 
     public GeminiFoodPhotoScanDto scanFoodPhoto(MultipartFile image) {
-        GeminiRequest request = createFoodPhotoScanRequest(image);
+        return scanFoodPhoto(image, null);
+    }
+
+    public GeminiFoodPhotoScanDto scanFoodPhoto(MultipartFile image, String acceptLanguage) {
+        String languageTag = resolveFoodNameLanguage(acceptLanguage);
+        GeminiRequest request = createFoodPhotoScanRequest(image, languageTag);
         Instant startedAt = Instant.now();
         try {
-            log.debug("Requesting Gemini food photo scan");
+            log.debug("Requesting Gemini food photo scan language={}", languageTag);
             GeminiResponse response = geminiClient.generateContent(
                     geminiProperties.getApiKey(), request);
             logUsage("food-photo", startedAt, response);
@@ -166,7 +173,8 @@ public class GeminiService {
         return request;
     }
 
-    private GeminiRequest createFoodPhotoScanRequest(MultipartFile image) {
+    private GeminiRequest createFoodPhotoScanRequest(MultipartFile image,
+                                                     String languageTag) {
         GeminiProperties.FoodPhotoScan scanProperties = geminiProperties.getFoodPhotoScan();
         byte[] imageBytes = imageService.resizeImageToJpegBytes(
                 image,
@@ -177,7 +185,7 @@ public class GeminiService {
         String base64Image = Base64.getEncoder().encodeToString(imageBytes);
         GeminiRequest request = new GeminiRequest(List.of(
                 new GeminiRequest.Content(List.of(
-                        new GeminiRequest.Part(geminiProperties.getFoodPhotoPrompt()),
+                        new GeminiRequest.Part(localizedFoodPhotoPrompt(languageTag)),
                         new GeminiRequest.Part(new GeminiRequest.InlineData(
                                 GEMINI_IMAGE_MIME_TYPE, base64Image))
                 ))
@@ -192,6 +200,38 @@ public class GeminiService {
         return request;
     }
 
+    private String localizedFoodPhotoPrompt(String languageTag) {
+        Locale locale = Locale.forLanguageTag(languageTag);
+        String languageName = locale.getDisplayLanguage(Locale.ENGLISH);
+        return geminiProperties.getFoodPhotoPrompt()
+                + "\n\nReturn every items[].name in " + languageName
+                + " (BCP 47 language tag: " + languageTag + ") using its native script. "
+                + "Keep the name concise, standardized, and suitable for food search. "
+                + "Return items[].search_name as the corresponding concise canonical English "
+                + "food name for database matching. "
+                + "Do not translate JSON property names or enum values.";
+    }
+
+    private String resolveFoodNameLanguage(String acceptLanguage) {
+        if (acceptLanguage == null || acceptLanguage.isBlank()) {
+            return DEFAULT_FOOD_NAME_LANGUAGE;
+        }
+        try {
+            for (Locale.LanguageRange range : Locale.LanguageRange.parse(acceptLanguage)) {
+                if ("*".equals(range.getRange())) {
+                    continue;
+                }
+                Locale locale = Locale.forLanguageTag(range.getRange()).stripExtensions();
+                if (!locale.getLanguage().isBlank()) {
+                    return locale.toLanguageTag();
+                }
+            }
+        } catch (IllegalArgumentException exception) {
+            log.debug("Ignoring invalid Accept-Language value for food photo scan");
+        }
+        return DEFAULT_FOOD_NAME_LANGUAGE;
+    }
+
     private Map<String, Object> foodPhotoResponseSchema() {
         Map<String, Object> nutrition = Map.of(
                 "type", "OBJECT",
@@ -203,30 +243,56 @@ public class GeminiService {
                         "carbs_g", nonNegativeNumberSchema()
                 )
         );
+
         Map<String, Object> item = Map.of(
                 "type", "OBJECT",
-                "required", List.of("name", "estimated_weight_grams",
+                "required", List.of("name", "search_name", "estimated_weight_grams",
                         "confidence_score", "fallback_nutrition"),
                 "properties", Map.of(
-                        "name", Map.of("type", "STRING"),
+                        "name", Map.of(
+                                "type", "STRING",
+                                "description", "Standardized canonical food name in the "
+                                               + "language requested by the prompt. Include the "
+                                               + "dry/raw state tag in the same language if the "
+                                               + "weight represents uncooked dry grains/legumes."
+                        ),
+                        "search_name", Map.of(
+                                "type", "STRING",
+                                "description", "Concise canonical English food name used only "
+                                               + "for backend database matching."
+                        ),
                         "estimated_weight_grams", Map.of(
-                                "type", "NUMBER", "minimum", 0),
+                                "type", "NUMBER",
+                                "minimum", 0,
+                                "description", "Estimated edible weight in grams. Dry equivalent"
+                                               + " for expandable grains; actual drained/as-served"
+                                               + " weight for vegetables/canned foods/eggs."
+                        ),
                         "confidence_score", Map.of(
-                                "type", "NUMBER", "minimum", 0, "maximum", 1),
+                                "type", "NUMBER",
+                                "minimum", 0,
+                                "maximum", 1
+                        ),
                         "fallback_nutrition", nutrition
                 )
         );
+
         return Map.of(
                 "type", "OBJECT",
                 "required", List.of("scan_type", "image_quality", "items"),
                 "properties", Map.of(
                         "scan_type", Map.of(
                                 "type", "STRING",
-                                "enum", List.of("food", "barcode", "not_food")),
+                                "enum", List.of("food", "barcode", "not_food")
+                        ),
                         "image_quality", Map.of(
                                 "type", "STRING",
-                                "enum", List.of("usable", "blurred")),
-                        "items", Map.of("type", "ARRAY", "items", item)
+                                "enum", List.of("usable", "blurred")
+                        ),
+                        "items", Map.of(
+                                "type", "ARRAY",
+                                "items", item
+                        )
                 )
         );
     }
@@ -290,6 +356,7 @@ public class GeminiService {
         }
         for (GeminiFoodPhotoScanDto.Item item : items) {
             if (item == null || item.getName() == null || item.getName().isBlank()
+                    || item.getSearchName() == null || item.getSearchName().isBlank()
                     || !inRange(item.getEstimatedWeightGrams(), BigDecimal.ZERO, null)
                     || !inRange(item.getConfidenceScore(), BigDecimal.ZERO, BigDecimal.ONE)
                     || item.getFallbackNutrition() == null

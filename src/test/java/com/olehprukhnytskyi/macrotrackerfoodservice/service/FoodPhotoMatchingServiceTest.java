@@ -43,14 +43,15 @@ class FoodPhotoMatchingServiceTest {
                         .carbohydratesPer100(BigDecimal.ZERO)
                         .build())
                 .build();
-        GeminiFoodPhotoScanDto.Item visionItem = item("chicken breast", "150");
+        GeminiFoodPhotoScanDto.Item visionItem = item("Куряча грудка", "150");
+        visionItem.setSearchName("chicken breast");
         when(historyLoader.load(7L)).thenReturn(List.of(food));
 
         FoodPhotoScanResponseDto.Item result = service.process(7L, List.of(visionItem)).getFirst();
 
         assertThat(result.getSource()).isEqualTo("db_matched");
         assertThat(result.getId()).isEqualTo("food-1");
-        assertThat(result.getSearchQuery()).isEqualTo("chicken breast");
+        assertThat(result.getSearchQuery()).isEqualTo("Куряча грудка");
         assertThat(result.getCalories()).isEqualByComparingTo("247.50");
         assertThat(result.getProteinG()).isEqualByComparingTo("46.50");
         assertThat(result.getMatchScore()).isEqualByComparingTo("1.0000");

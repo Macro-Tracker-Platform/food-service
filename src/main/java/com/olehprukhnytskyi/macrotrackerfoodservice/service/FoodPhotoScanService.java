@@ -34,10 +34,16 @@ public class FoodPhotoScanService {
     public FoodPhotoScanResponseDto scan(Long userId, String appVersionCode,
                                          String idempotencyKey,
                                          FoodPhotoBase64RequestDto request) {
+        return scan(userId, appVersionCode, idempotencyKey, null, request);
+    }
+
+    public FoodPhotoScanResponseDto scan(Long userId, String appVersionCode,
+                                         String idempotencyKey, String acceptLanguage,
+                                         FoodPhotoBase64RequestDto request) {
         return idempotencyService.execute(userId, idempotencyKey, operationToken -> {
             try (FoodPhotoCapacityGuard.Permit ignored = capacityGuard.acquire()) {
                 return scanInternal(userId, appVersionCode,
-                        base64ImageDecoder.decode(request), operationToken);
+                        base64ImageDecoder.decode(request), acceptLanguage, operationToken);
             }
         });
     }
@@ -49,15 +55,23 @@ public class FoodPhotoScanService {
 
     public FoodPhotoScanResponseDto scan(Long userId, String appVersionCode,
                                          String idempotencyKey, MultipartFile image) {
+        return scan(userId, appVersionCode, idempotencyKey, null, image);
+    }
+
+    public FoodPhotoScanResponseDto scan(Long userId, String appVersionCode,
+                                         String idempotencyKey, String acceptLanguage,
+                                         MultipartFile image) {
         return idempotencyService.execute(userId, idempotencyKey, operationToken -> {
             try (FoodPhotoCapacityGuard.Permit ignored = capacityGuard.acquire()) {
-                return scanInternal(userId, appVersionCode, image, operationToken);
+                return scanInternal(userId, appVersionCode, image, acceptLanguage,
+                        operationToken);
             }
         });
     }
 
     private FoodPhotoScanResponseDto scanInternal(Long userId, String appVersionCode,
                                                    MultipartFile image,
+                                                   String acceptLanguage,
                                                    String operationToken) {
         Instant startedAt = Instant.now();
         imageService.validateImage(image);
@@ -68,7 +82,8 @@ public class FoodPhotoScanService {
                 quotaService.reserve(userId, premium, operationToken);
         boolean committed = false;
         try {
-            GeminiFoodPhotoScanDto visionResult = geminiService.scanFoodPhoto(image);
+            GeminiFoodPhotoScanDto visionResult = geminiService.scanFoodPhoto(
+                    image, acceptLanguage);
             if ("blurred".equals(visionResult.getImageQuality())) {
                 logCompleted(userId, "blurred", startedAt, 0);
                 return response("not_food", reservation.snapshot(), Collections.emptyList());

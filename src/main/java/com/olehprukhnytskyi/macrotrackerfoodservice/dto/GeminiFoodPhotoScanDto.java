@@ -30,6 +30,9 @@ public class GeminiFoodPhotoScanDto {
     public static class Item {
         private String name;
 
+        @JsonProperty("search_name")
+        private String searchName;
+
         @JsonProperty("estimated_weight_grams")
         private BigDecimal estimatedWeightGrams;
 

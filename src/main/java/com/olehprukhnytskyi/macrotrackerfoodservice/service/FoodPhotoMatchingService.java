@@ -38,12 +38,12 @@ public class FoodPhotoMatchingService {
             Long userId, List<GeminiFoodPhotoScanDto.Item> items) {
         List<Food> history = historyLoader.load(userId);
         List<Match> historyMatches = items.stream()
-                .map(item -> bestMatch(item.getName(), history))
+                .map(item -> bestMatch(matchingName(item), history))
                 .toList();
         List<String> unresolved = new ArrayList<>();
         for (int index = 0; index < items.size(); index++) {
             if (historyMatches.get(index).score() < threshold()) {
-                unresolved.add(items.get(index).getName());
+                unresolved.add(matchingName(items.get(index)));
             }
         }
         List<Food> globalCandidates = loadGlobalCandidates(userId, unresolved);
@@ -51,7 +51,7 @@ public class FoodPhotoMatchingService {
         for (int index = 0; index < items.size(); index++) {
             GeminiFoodPhotoScanDto.Item item = items.get(index);
             Match historyMatch = historyMatches.get(index);
-            Match globalMatch = bestMatch(item.getName(), globalCandidates);
+            Match globalMatch = bestMatch(matchingName(item), globalCandidates);
             Match best = globalMatch.score() >= historyMatch.score()
                     ? globalMatch : historyMatch;
             if (best.food() != null && best.score() >= threshold()
@@ -62,6 +62,11 @@ public class FoodPhotoMatchingService {
             }
         }
         return results;
+    }
+
+    private String matchingName(GeminiFoodPhotoScanDto.Item item) {
+        return item.getSearchName() == null || item.getSearchName().isBlank()
+                ? item.getName() : item.getSearchName();
     }
 
     private List<Food> loadGlobalCandidates(Long userId, List<String> names) {

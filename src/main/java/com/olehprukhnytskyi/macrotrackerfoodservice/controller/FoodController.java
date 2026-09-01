@@ -24,6 +24,7 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -235,9 +236,11 @@ public class FoodController {
             @RequestHeader(value = CustomHeaders.X_APP_VERSION_CODE, required = false)
             String appVersionCode,
             @RequestHeader(value = "Idempotency-Key", required = false)
-            String idempotencyKey) {
+            String idempotencyKey,
+            @RequestHeader(value = HttpHeaders.ACCEPT_LANGUAGE, required = false)
+            String acceptLanguage) {
         return ResponseEntity.ok(foodPhotoScanService.scan(
-                userId, appVersionCode, idempotencyKey, image));
+                userId, appVersionCode, idempotencyKey, acceptLanguage, image));
     }
 
     @Operation(
@@ -254,9 +257,11 @@ public class FoodController {
             @RequestHeader(value = CustomHeaders.X_APP_VERSION_CODE, required = false)
             String appVersionCode,
             @RequestHeader(value = "Idempotency-Key", required = false)
-            String idempotencyKey) {
+            String idempotencyKey,
+            @RequestHeader(value = HttpHeaders.ACCEPT_LANGUAGE, required = false)
+            String acceptLanguage) {
         return ResponseEntity.ok(foodPhotoScanService.scan(
-                userId, appVersionCode, idempotencyKey, request));
+                userId, appVersionCode, idempotencyKey, acceptLanguage, request));
     }
 
     @Operation(
