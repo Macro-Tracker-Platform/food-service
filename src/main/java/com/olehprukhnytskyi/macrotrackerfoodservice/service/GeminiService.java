@@ -251,22 +251,20 @@ public class GeminiService {
                 "properties", Map.of(
                         "name", Map.of(
                                 "type", "STRING",
-                                "description", "Standardized canonical food name in the "
-                                               + "language requested by the prompt. Include the "
-                                               + "dry/raw state tag in the same language if the "
-                                               + "weight represents uncooked dry grains/legumes."
+                                "description", "User-friendly display name in the"
+                                               + " requested language (e.g. 'Cooked buckwheat',"
+                                               + " 'Boiled egg')."
                         ),
                         "search_name", Map.of(
                                 "type", "STRING",
-                                "description", "Concise canonical English food name used only "
-                                               + "for backend database matching."
+                                "description", "STRICTLY base ingredient name in the"
+                                               + " requested language. NO cooking methods,"
+                                               + " NO states, NO parentheses)."
                         ),
                         "estimated_weight_grams", Map.of(
                                 "type", "NUMBER",
                                 "minimum", 0,
-                                "description", "Estimated edible weight in grams. Dry equivalent"
-                                               + " for expandable grains; actual drained/as-served"
-                                               + " weight for vegetables/canned foods/eggs."
+                                "description", "Actual edible as-served weight in grams."
                         ),
                         "confidence_score", Map.of(
                                 "type", "NUMBER",
@@ -291,6 +289,8 @@ public class GeminiService {
                         ),
                         "items", Map.of(
                                 "type", "ARRAY",
+                                "description", "Return empty array [] if scan_type is"
+                                               + " barcode/not_food or image_quality is blurred.",
                                 "items", item
                         )
                 )
