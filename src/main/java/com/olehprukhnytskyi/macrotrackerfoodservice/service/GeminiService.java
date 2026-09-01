@@ -35,6 +35,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class GeminiService {
     private static final String GEMINI_IMAGE_MIME_TYPE = "image/jpeg";
+    private static final int MAX_UPSTREAM_ERROR_LOG_LENGTH = 1_000;
     private final GeminiClient geminiClient;
     private final GeminiProperties geminiProperties;
     private final ImageService imageService;
@@ -94,8 +95,9 @@ public class GeminiService {
             logUsage("food-photo", startedAt, response);
             return parseFoodPhotoResponse(response);
         } catch (FeignException e) {
-            log.warn("Gemini food photo scan failed after {}ms with status={}",
-                    Duration.between(startedAt, Instant.now()).toMillis(), e.status());
+            log.warn("Gemini food photo scan failed after {}ms with status={} response={}",
+                    Duration.between(startedAt, Instant.now()).toMillis(),
+                    e.status(), upstreamErrorSummary(e));
             if (isTemporaryGeminiFailure(e)) {
                 throw new GeminiTemporaryUnavailableException(retryAfterSeconds(e), e);
             }
@@ -192,8 +194,7 @@ public class GeminiService {
 
     private Map<String, Object> foodPhotoResponseSchema() {
         Map<String, Object> nutrition = Map.of(
-                "type", "object",
-                "additionalProperties", false,
+                "type", "OBJECT",
                 "required", List.of("calories", "protein_g", "fat_g", "carbs_g"),
                 "properties", Map.of(
                         "calories", nonNegativeNumberSchema(),
@@ -203,37 +204,46 @@ public class GeminiService {
                 )
         );
         Map<String, Object> item = Map.of(
-                "type", "object",
-                "additionalProperties", false,
+                "type", "OBJECT",
                 "required", List.of("name", "estimated_weight_grams",
                         "confidence_score", "fallback_nutrition"),
                 "properties", Map.of(
-                        "name", Map.of("type", "string"),
+                        "name", Map.of("type", "STRING"),
                         "estimated_weight_grams", Map.of(
-                                "type", "number", "minimum", 0),
+                                "type", "NUMBER", "minimum", 0),
                         "confidence_score", Map.of(
-                                "type", "number", "minimum", 0, "maximum", 1),
+                                "type", "NUMBER", "minimum", 0, "maximum", 1),
                         "fallback_nutrition", nutrition
                 )
         );
         return Map.of(
-                "type", "object",
-                "additionalProperties", false,
+                "type", "OBJECT",
                 "required", List.of("scan_type", "image_quality", "items"),
                 "properties", Map.of(
                         "scan_type", Map.of(
-                                "type", "string",
+                                "type", "STRING",
                                 "enum", List.of("food", "barcode", "not_food")),
                         "image_quality", Map.of(
-                                "type", "string",
+                                "type", "STRING",
                                 "enum", List.of("usable", "blurred")),
-                        "items", Map.of("type", "array", "items", item)
+                        "items", Map.of("type", "ARRAY", "items", item)
                 )
         );
     }
 
     private Map<String, Object> nonNegativeNumberSchema() {
-        return Map.of("type", "number", "minimum", 0);
+        return Map.of("type", "NUMBER", "minimum", 0);
+    }
+
+    private String upstreamErrorSummary(FeignException exception) {
+        String response = exception.contentUTF8();
+        if (response == null || response.isBlank()) {
+            return "<empty>";
+        }
+        String singleLine = response.replaceAll("[\\r\\n\\t]+", " ").trim();
+        return singleLine.length() <= MAX_UPSTREAM_ERROR_LOG_LENGTH
+                ? singleLine
+                : singleLine.substring(0, MAX_UPSTREAM_ERROR_LOG_LENGTH) + "...";
     }
 
     private GeminiFoodPhotoScanDto parseFoodPhotoResponse(GeminiResponse response) {

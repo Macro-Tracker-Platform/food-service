@@ -1,6 +1,7 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -21,6 +22,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.service.GeminiService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.ImageService;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -225,6 +227,16 @@ class GeminiServiceTest {
         assertEquals("food", result.getScanType());
         assertEquals("chicken breast", result.getItems().getFirst().getName());
         assertNotNull(requestCaptor.getValue().getGenerationConfig().getResponseSchema());
+        Map<String, Object> responseSchema =
+                requestCaptor.getValue().getGenerationConfig().getResponseSchema();
+        assertEquals("OBJECT", responseSchema.get("type"));
+        assertFalse(responseSchema.containsKey("additionalProperties"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> properties =
+                (Map<String, Object>) responseSchema.get("properties");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> items = (Map<String, Object>) properties.get("items");
+        assertEquals("ARRAY", items.get("type"));
         assertEquals("application/json",
                 requestCaptor.getValue().getGenerationConfig().getResponseMimeType());
     }
