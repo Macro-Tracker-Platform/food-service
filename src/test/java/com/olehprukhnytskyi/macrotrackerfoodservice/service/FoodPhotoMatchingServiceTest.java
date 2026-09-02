@@ -53,7 +53,9 @@ class FoodPhotoMatchingServiceTest {
         assertThat(result.getId()).isEqualTo("food-1");
         assertThat(result.getSearchQuery()).isEqualTo("Куряча грудка");
         assertThat(result.getCalories()).isEqualByComparingTo("247.50");
+        assertThat(result.getCaloriesPer100()).isEqualByComparingTo("165.00");
         assertThat(result.getProteinG()).isEqualByComparingTo("46.50");
+        assertThat(result.getProteinPer100()).isEqualByComparingTo("31.00");
         assertThat(result.getMatchScore()).isEqualByComparingTo("1.0000");
         verify(searchDao, never()).searchPhotoCandidates(List.of("chicken breast"), 7L, 10);
     }
@@ -71,6 +73,7 @@ class FoodPhotoMatchingServiceTest {
         assertThat(result.getId()).isNull();
         assertThat(result.getName()).isEqualTo("dragon fruit bowl");
         assertThat(result.getCalories()).isEqualByComparingTo("230.00");
+        assertThat(result.getCaloriesPer100()).isEqualByComparingTo("104.55");
     }
 
     @Test

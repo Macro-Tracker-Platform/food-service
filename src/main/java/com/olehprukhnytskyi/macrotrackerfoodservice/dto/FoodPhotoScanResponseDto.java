@@ -59,5 +59,17 @@ public class FoodPhotoScanResponseDto {
 
         @JsonProperty("carbs_g")
         private BigDecimal carbsG;
+
+        @JsonProperty("calories_per100")
+        private BigDecimal caloriesPer100;
+
+        @JsonProperty("protein_per100")
+        private BigDecimal proteinPer100;
+
+        @JsonProperty("fat_per100")
+        private BigDecimal fatPer100;
+
+        @JsonProperty("carbs_per100")
+        private BigDecimal carbsPer100;
     }
 }

@@ -119,6 +119,10 @@ public class FoodPhotoMatchingService {
                 .proteinG(scale(nutrients.getProteinPer100(), factor))
                 .fatG(scale(nutrients.getFatPer100(), factor))
                 .carbsG(scale(nutrients.getCarbohydratesPer100(), factor))
+                .caloriesPer100(nutritionValue(nutrients.getCaloriesPer100()))
+                .proteinPer100(nutritionValue(nutrients.getProteinPer100()))
+                .fatPer100(nutritionValue(nutrients.getFatPer100()))
+                .carbsPer100(nutritionValue(nutrients.getCarbohydratesPer100()))
                 .build();
     }
 
@@ -133,6 +137,10 @@ public class FoodPhotoMatchingService {
                 .proteinG(nutritionValue(nutrients.getProteinG()))
                 .fatG(nutritionValue(nutrients.getFatG()))
                 .carbsG(nutritionValue(nutrients.getCarbsG()))
+                .caloriesPer100(per100(nutrients.getCalories(), item.getEstimatedWeightGrams()))
+                .proteinPer100(per100(nutrients.getProteinG(), item.getEstimatedWeightGrams()))
+                .fatPer100(per100(nutrients.getFatG(), item.getEstimatedWeightGrams()))
+                .carbsPer100(per100(nutrients.getCarbsG(), item.getEstimatedWeightGrams()))
                 .build();
     }
 
@@ -171,8 +179,15 @@ public class FoodPhotoMatchingService {
         return nutritionValue(per100 == null ? BigDecimal.ZERO : per100.multiply(factor));
     }
 
+    private BigDecimal per100(BigDecimal total, BigDecimal weightG) {
+        BigDecimal weight = weightG == null || weightG.signum() <= 0 ? BigDecimal.ONE : weightG;
+        return nutritionValue((total == null ? BigDecimal.ZERO : total)
+                .multiply(ONE_HUNDRED)
+                .divide(weight, 8, RoundingMode.HALF_UP));
+    }
+
     private BigDecimal nutritionValue(BigDecimal value) {
-        return value.setScale(2, RoundingMode.HALF_UP);
+        return (value == null ? BigDecimal.ZERO : value).setScale(2, RoundingMode.HALF_UP);
     }
 
     double similarity(String left, String right) {

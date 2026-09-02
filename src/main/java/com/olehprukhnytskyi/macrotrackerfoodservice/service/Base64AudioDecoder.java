@@ -9,6 +9,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.Base64;
+import java.util.List;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -20,6 +22,17 @@ public class Base64AudioDecoder {
     private static final String DATA_PREFIX = "data:";
     private static final String BASE64_MARKER = ";base64,";
     private static final String DEFAULT_MEDIA_TYPE = "audio/3gpp";
+    private static final List<String> ALLOWED_MEDIA_TYPES = List.of(
+            "audio/3gpp",
+            "audio/3gpp2",
+            "audio/amr",
+            "audio/mp4",
+            "audio/mpeg",
+            "audio/aac",
+            "audio/wav",
+            "audio/x-wav",
+            "audio/webm"
+    );
 
     private final GeminiProperties properties;
 
@@ -37,6 +50,10 @@ public class Base64AudioDecoder {
         }
         if (mediaType == null || mediaType.isBlank()) {
             mediaType = DEFAULT_MEDIA_TYPE;
+        }
+        mediaType = normalizedMediaType(mediaType);
+        if (!ALLOWED_MEDIA_TYPES.contains(mediaType)) {
+            throw invalidAudio();
         }
         if (encoded.length() > maxEncodedLength()) {
             throw audioTooLarge();
@@ -71,6 +88,13 @@ public class Base64AudioDecoder {
 
     private long maxEncodedLength() {
         return ((maxAudioBytes() + 2) / 3) * 4;
+    }
+
+    private String normalizedMediaType(String mediaType) {
+        int parametersStart = mediaType.indexOf(';');
+        String bareMediaType = parametersStart >= 0
+                ? mediaType.substring(0, parametersStart) : mediaType;
+        return bareMediaType.trim().toLowerCase(Locale.ROOT);
     }
 
     private FoodPhotoScanLimitException invalidAudio() {
