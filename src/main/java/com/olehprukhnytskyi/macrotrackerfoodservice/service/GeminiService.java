@@ -279,36 +279,9 @@ public class GeminiService {
         String languageName = locale.getDisplayLanguage(Locale.ENGLISH);
 
         return geminiProperties.getFoodVoicePrompt()
-               + "\n\nTASK & CONSTRAINTS:"
-               + "\n1. AUDIO CONTEXT: The user is speaking a food log recorded on a phone,"
-               + " possibly in any language, with background noise or speech-to-text"
-               + " imperfections. Contextually correct obvious phonetic/transcription errors."
-               + "\n2. SCAN STATUS: Return scan_type='not_food' and items=[] ONLY if"
-               + " the user talks about non-food topics or the audio contains pure"
-               + " unintelligible noise. Always set image_quality='usable' for voice logs."
-               + "\n3. PORTION & WEIGHT ESTIMATION (CRITICAL):"
-               + "   - If the user explicitly mentions quantity, volume, or weight "
-               + "(e.g., '200 grams of chicken', 'two slices of toast', 'a glass of milk'),"
-               + " compute the exact weight in grams."
-               + "   - If NO weight or quantity is specified (e.g., 'I ate a banana', "
-               + "'had some pasta', 'drank an espresso'), you MUST intelligently infer a"
-               + " realistic standard USDA default serving size (e.g., 1 medium banana = "
-               + "118g, 1 serving cooked pasta = 140g, 1 slice bread = 35g). NEVER leave "
-               + "estimated_weight_grams empty or 0."
-               + "   - In 'estimation_rationale', state clearly whether the portion was"
-               + " explicitly stated or defaulted to a standard serving (e.g., 'Defaulted "
-               + "to standard serving: 1 medium banana (118g)')."
-               + "\n4. LANGUAGE & NAMING:"
-               + "   - Return every items[].name in " + languageName + " (BCP 47 tag: "
-               + languageTag + ") using its native script. Keep it specific (e.g., "
-               + "'Grilled Chicken Breast', not just 'Chicken')."
-               + "   - Return items[].search_name as the canonical base ingredient strictly "
-               + "in English, lowercase, without cooking methods or adjectives (e.g., "
-               + "'chicken breast', 'egg', 'white rice') for database searching."
-               + "\n5. NUTRITION: Calculate fallback_nutrition (calories, protein_g,"
-               + " fat_g, carbs_g) proportional to estimated_weight_grams."
-               + "\n6. Return strictly valid JSON. Do not translate JSON field"
-               + " names or enum values.";
+               + "\n4. LANGUAGE:"
+               + "\n   - Return every items[].name strictly in " + languageName
+               + " (BCP 47 tag: " + languageTag + ") using its native script.";
     }
 
     private String resolveFoodNameLanguage(String acceptLanguage) {
