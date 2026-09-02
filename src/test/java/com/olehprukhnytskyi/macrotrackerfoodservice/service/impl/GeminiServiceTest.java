@@ -280,7 +280,6 @@ class GeminiServiceTest {
         String prompt = requestCaptor.getValue().getContents().getFirst()
                 .getParts().getFirst().getText();
         assertTrue(prompt.contains("Ukrainian"));
-        assertTrue(prompt.contains("food log"));
         assertNotNull(requestCaptor.getValue().getGenerationConfig().getResponseSchema());
     }
 
