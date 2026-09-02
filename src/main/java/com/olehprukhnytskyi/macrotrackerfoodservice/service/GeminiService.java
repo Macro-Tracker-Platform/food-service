@@ -409,9 +409,9 @@ public class GeminiService {
                         ),
                         "estimation_rationale", Map.of(
                                 "type", "STRING",
-                                "description", "Portion logic: count * unit weight, or note"
-                                               + " stating standard default serving"
-                                               + " size was assumed."
+                                "description", "MUST start with the exact original words "
+                                               + "spoken by the user in their native language,"
+                                               + " followed by the math logic."
                         ),
                         "estimated_weight_grams", Map.of(
                                 "type", "NUMBER",
