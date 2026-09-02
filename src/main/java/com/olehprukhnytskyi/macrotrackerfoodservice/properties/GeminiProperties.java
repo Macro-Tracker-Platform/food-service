@@ -24,8 +24,12 @@ public class GeminiProperties {
     @NotBlank
     private String foodPhotoPrompt;
 
+    @NotBlank
+    private String foodVoicePrompt;
+
     private NutritionLabelScan nutritionLabelScan = new NutritionLabelScan();
     private FoodPhotoScan foodPhotoScan = new FoodPhotoScan();
+    private FoodVoiceScan foodVoiceScan = new FoodVoiceScan();
 
     @Data
     public static class NutritionLabelScan {
@@ -83,5 +87,24 @@ public class GeminiProperties {
         private long maxDecodedPixels = 20_000_000;
         @Min(1)
         private long idempotencyTtlHours = 24;
+    }
+
+    @Data
+    public static class FoodVoiceScan {
+        @Min(1)
+        private int premiumDailyLimit = 30;
+        @Min(1)
+        private long maxAudioBytes = 5L * 1024L * 1024L;
+        @Min(1)
+        private long maxDurationMs = 60_000L;
+        @Min(1)
+        private int maxOutputTokens = 1024;
+        @Min(-1)
+        private int thinkingBudget = 0;
+        private double temperature = 0.0;
+        private String responseMimeType = "application/json";
+        private ZoneId quotaZone = ZoneId.of("UTC");
+        @Min(30)
+        private long reservationTtlSeconds = 180;
     }
 }

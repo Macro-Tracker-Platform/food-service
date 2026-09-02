@@ -247,6 +247,43 @@ class GeminiServiceTest {
                 requestCaptor.getValue().getGenerationConfig().getResponseMimeType());
     }
 
+    @Test
+    @DisplayName("Food voice scans should send audio and parse strict structured JSON")
+    void scanFoodVoice_shouldUseAudioInlineDataAndResponseSchema() {
+        MultipartFile audio = new MockMultipartFile(
+                "audio", "voice.3gp", "audio/3gpp", new byte[] {9});
+        GeminiProperties.FoodVoiceScan scanProperties =
+                new GeminiProperties.FoodVoiceScan();
+        when(geminiProperties.getApiKey()).thenReturn("test-key");
+        when(geminiProperties.getFoodVoicePrompt()).thenReturn("Transcribe food.");
+        when(geminiProperties.getFoodVoiceScan()).thenReturn(scanProperties);
+        when(geminiClient.generateContent(eq("test-key"), any()))
+                .thenReturn(nutritionLabelResponse("""
+                        {"scan_type":"food","image_quality":"usable",
+                        "items":[{"name":"Куряча грудка","search_name":"chicken breast",
+                        "estimated_weight_grams":150,"confidence_score":0.95,
+                        "fallback_nutrition":{"calories":248,"protein_g":46,
+                        "fat_g":5,"carbs_g":0}}]}
+                        """));
+
+        GeminiFoodPhotoScanDto result = geminiService.scanFoodVoice(
+                audio, "uk-UA,uk;q=0.9,en;q=0.8");
+
+        ArgumentCaptor<GeminiRequest> requestCaptor =
+                ArgumentCaptor.forClass(GeminiRequest.class);
+        verify(geminiClient).generateContent(eq("test-key"), requestCaptor.capture());
+        assertEquals("food", result.getScanType());
+        GeminiRequest.Part audioPart = requestCaptor.getValue().getContents().getFirst()
+                .getParts().get(1);
+        assertNotNull(audioPart.getInlineData());
+        assertEquals("audio/3gpp", audioPart.getInlineData().getMimeType());
+        String prompt = requestCaptor.getValue().getContents().getFirst()
+                .getParts().getFirst().getText();
+        assertTrue(prompt.contains("Ukrainian"));
+        assertTrue(prompt.contains("food log"));
+        assertNotNull(requestCaptor.getValue().getGenerationConfig().getResponseSchema());
+    }
+
     private void mockNutritionLabelScanRequest() {
         GeminiProperties.NutritionLabelScan scanProperties =
                 new GeminiProperties.NutritionLabelScan();

@@ -13,6 +13,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.exception.GeminiTemporaryUna
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.properties.GeminiProperties;
 import feign.FeignException;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
@@ -36,6 +37,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class GeminiService {
     private static final String GEMINI_IMAGE_MIME_TYPE = "image/jpeg";
+    private static final String GEMINI_AUDIO_MIME_TYPE = "audio/3gpp";
     private static final String DEFAULT_FOOD_NAME_LANGUAGE = "en";
     private static final int MAX_UPSTREAM_ERROR_LOG_LENGTH = 1_000;
     private final GeminiClient geminiClient;
@@ -111,6 +113,31 @@ public class GeminiService {
             throw new ExternalServiceException(
                     CommonErrorCode.UPSTREAM_SERVICE_UNAVAILABLE,
                     "Gemini food photo scan failed",
+                    e
+            );
+        }
+    }
+
+    public GeminiFoodPhotoScanDto scanFoodVoice(MultipartFile audio, String acceptLanguage) {
+        String languageTag = resolveFoodNameLanguage(acceptLanguage);
+        GeminiRequest request = createFoodVoiceScanRequest(audio, languageTag);
+        Instant startedAt = Instant.now();
+        try {
+            log.debug("Requesting Gemini food voice scan language={}", languageTag);
+            GeminiResponse response = geminiClient.generateContent(
+                    geminiProperties.getApiKey(), request);
+            logUsage("food-voice", startedAt, response);
+            return parseFoodPhotoResponse(response);
+        } catch (FeignException e) {
+            log.warn("Gemini food voice scan failed after {}ms with status={} response={}",
+                    Duration.between(startedAt, Instant.now()).toMillis(),
+                    e.status(), upstreamErrorSummary(e));
+            if (isTemporaryGeminiFailure(e)) {
+                throw new GeminiTemporaryUnavailableException(retryAfterSeconds(e), e);
+            }
+            throw new ExternalServiceException(
+                    CommonErrorCode.UPSTREAM_SERVICE_UNAVAILABLE,
+                    "Gemini food voice scan failed",
                     e
             );
         }
@@ -200,11 +227,63 @@ public class GeminiService {
         return request;
     }
 
+    private GeminiRequest createFoodVoiceScanRequest(MultipartFile audio,
+                                                     String languageTag) {
+        GeminiProperties.FoodVoiceScan scanProperties = geminiProperties.getFoodVoiceScan();
+        byte[] audioBytes;
+        try {
+            audioBytes = audio.getBytes();
+        } catch (IOException exception) {
+            throw new ExternalServiceException(
+                    CommonErrorCode.UPSTREAM_SERVICE_UNAVAILABLE,
+                    "Could not prepare food voice scan request",
+                    exception
+            );
+        }
+        String mediaType = audio.getContentType();
+        if (mediaType == null || mediaType.isBlank()) {
+            mediaType = GEMINI_AUDIO_MIME_TYPE;
+        }
+        String base64Audio = Base64.getEncoder().encodeToString(audioBytes);
+        GeminiRequest request = new GeminiRequest(List.of(
+                new GeminiRequest.Content(List.of(
+                        new GeminiRequest.Part(localizedFoodVoicePrompt(languageTag)),
+                        new GeminiRequest.Part(new GeminiRequest.InlineData(
+                                mediaType, base64Audio))
+                ))
+        ));
+        request.setGenerationConfig(new GeminiRequest.GenerationConfig(
+                scanProperties.getTemperature(),
+                scanProperties.getMaxOutputTokens(),
+                scanProperties.getResponseMimeType(),
+                new GeminiRequest.ThinkingConfig(scanProperties.getThinkingBudget()),
+                foodPhotoResponseSchema()
+        ));
+        return request;
+    }
+
     private String localizedFoodPhotoPrompt(String languageTag) {
         Locale locale = Locale.forLanguageTag(languageTag);
         String languageName = locale.getDisplayLanguage(Locale.ENGLISH);
         return geminiProperties.getFoodPhotoPrompt()
                 + "\n\nReturn every items[].name in " + languageName
+                + " (BCP 47 language tag: " + languageTag + ") using its native script. "
+                + "Keep the name concise, standardized, and suitable for food search. "
+                + "Return items[].search_name as the corresponding concise canonical English "
+                + "food name for database matching. "
+                + "Do not translate JSON property names or enum values.";
+    }
+
+    private String localizedFoodVoicePrompt(String languageTag) {
+        Locale locale = Locale.forLanguageTag(languageTag);
+        String languageName = locale.getDisplayLanguage(Locale.ENGLISH);
+        return geminiProperties.getFoodVoicePrompt()
+                + "\n\nThe user is speaking a short food log recorded on a phone, "
+                + "possibly with background noise and low audio quality. "
+                + "Infer foods and portions only when the audio provides enough context. "
+                + "Return scan_type='not_food' and an empty items array if no foods can be "
+                + "identified. Set image_quality='usable' for voice scans. "
+                + "Return every items[].name in " + languageName
                 + " (BCP 47 language tag: " + languageTag + ") using its native script. "
                 + "Keep the name concise, standardized, and suitable for food search. "
                 + "Return items[].search_name as the corresponding concise canonical English "

@@ -37,4 +37,13 @@ public interface EntitlementClient {
     default FoodPhotoScanCreditDto consumeFoodPhotoScanCredit(Long userId) {
         return consumeFoodPhotoScanCredit(userId, null);
     }
+
+    @GetMapping("/api/users/me/voice-food-scans/credits")
+    FoodPhotoScanCreditDto getVoiceFoodScanCredits(
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId);
+
+    @PostMapping("/api/users/me/voice-food-scans/consume")
+    FoodPhotoScanCreditDto consumeVoiceFoodScanCredit(
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey);
 }

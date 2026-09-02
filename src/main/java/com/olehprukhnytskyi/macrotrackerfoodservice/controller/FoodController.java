@@ -9,11 +9,13 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoBase64RequestDt
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoScanResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodVoiceBase64RequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.BarcodeScanExceptionHandler;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.BarcodeScanService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodPhotoScanService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
+import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodVoiceScanService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.NutritionLabelScanService;
 import com.olehprukhnytskyi.util.CustomHeaders;
 import io.swagger.v3.oas.annotations.Operation;
@@ -56,6 +58,7 @@ public class FoodController {
     private final NutritionLabelScanService nutritionLabelScanService;
     private final BarcodeScanService barcodeScanService;
     private final FoodPhotoScanService foodPhotoScanService;
+    private final FoodVoiceScanService foodVoiceScanService;
 
     @Operation(
             summary = "Scan a food barcode",
@@ -261,6 +264,27 @@ public class FoodController {
             @RequestHeader(value = HttpHeaders.ACCEPT_LANGUAGE, required = false)
             String acceptLanguage) {
         return ResponseEntity.ok(foodPhotoScanService.scan(
+                userId, appVersionCode, idempotencyKey, acceptLanguage, request));
+    }
+
+    @Operation(
+            summary = "Scan a voice food log",
+            description = "Transcribe a short food log, estimate portions, and match foods"
+    )
+    @PostMapping(
+            value = "/voice-scan",
+            consumes = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<FoodPhotoScanResponseDto> scanFoodVoiceBase64(
+            @Valid @RequestBody FoodVoiceBase64RequestDto request,
+            @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
+            @RequestHeader(value = CustomHeaders.X_APP_VERSION_CODE, required = false)
+            String appVersionCode,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String idempotencyKey,
+            @RequestHeader(value = HttpHeaders.ACCEPT_LANGUAGE, required = false)
+            String acceptLanguage) {
+        return ResponseEntity.ok(foodVoiceScanService.scan(
                 userId, appVersionCode, idempotencyKey, acceptLanguage, request));
     }
 
