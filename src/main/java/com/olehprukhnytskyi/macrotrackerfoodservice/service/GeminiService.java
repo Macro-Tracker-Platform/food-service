@@ -251,15 +251,26 @@ public class GeminiService {
                 "properties", Map.of(
                         "name", Map.of(
                                 "type", "STRING",
-                                "description", "User-friendly display name in the"
-                                               + " requested language (e.g. 'Cooked buckwheat',"
-                                               + " 'Boiled egg')."
+                                "description", "The specific, exact name of the food item"
+                                               + " and preparation method, provided in the "
+                                               + "requested language. STRICTLY avoid general"
+                                               + " categories like 'fish', 'bread', or 'rice' "
+                                               + "(e.g., use 'Grilled Atlantic Salmon' or"
+                                               + " 'Fried Basmati Rice')."
                         ),
                         "search_name", Map.of(
                                 "type", "STRING",
                                 "description", "STRICTLY base ingredient name in the"
                                                + " requested language. NO cooking methods,"
                                                + " NO states, NO parentheses)."
+                        ),
+                        "estimation_rationale", Map.of(
+                                "type", "STRING",
+                                "description", "Brief estimation math: For discrete items,"
+                                               + " estimate total count and multiply by single"
+                                               + " piece weight. For continuous items, estimate "
+                                               + "surface area in cm2, thickness in cm,"
+                                               + " and multiply by density."
                         ),
                         "estimated_weight_grams", Map.of(
                                 "type", "NUMBER",
