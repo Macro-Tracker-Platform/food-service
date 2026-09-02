@@ -437,7 +437,8 @@ public class GeminiService {
                         "estimation_rationale", Map.of(
                                 "type", "STRING",
                                 "description", "Portion logic: count * unit weight, or note"
-                                               + " stating standard default serving size was assumed."
+                                               + " stating standard default serving"
+                                               + " size was assumed."
                         ),
                         "estimated_weight_grams", Map.of(
                                 "type", "NUMBER",
@@ -468,7 +469,8 @@ public class GeminiService {
                         ),
                         "items", Map.of(
                                 "type", "ARRAY",
-                                "description", "List of identified foods. Empty if scan_type is not_food.",
+                                "description", "List of identified foods. Empty"
+                                               + " if scan_type is not_food.",
                                 "items", item
                         )
                 )
