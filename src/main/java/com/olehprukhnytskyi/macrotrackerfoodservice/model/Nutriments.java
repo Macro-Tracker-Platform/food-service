@@ -1,6 +1,7 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.model;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.olehprukhnytskyi.model.NutrientAware;
 import jakarta.validation.constraints.DecimalMin;
 import java.math.BigDecimal;
@@ -15,6 +16,7 @@ import org.springframework.data.mongodb.core.mapping.FieldType;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties({"availableUnits", "gramsDataComplete", "piecesDataComplete"})
 public class Nutriments implements NutrientAware {
     @JsonAlias({"energy-kcal", "kcal", "calories"})
     @Field(name = "energy-kcal", targetType = FieldType.DOUBLE)
