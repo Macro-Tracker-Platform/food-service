@@ -84,21 +84,29 @@ public class FoodPhotoScanService {
         try {
             GeminiFoodPhotoScanDto visionResult = geminiService.scanFoodPhoto(
                     image, acceptLanguage);
+            FoodPhotoQuotaReservationService.QuotaSnapshot completedQuota =
+                    reservation.snapshot();
+            if (!premium) {
+                completedQuota = quotaService.commitSuccessfulFoodScan(reservation);
+                committed = true;
+            }
             if ("blurred".equals(visionResult.getImageQuality())) {
                 logCompleted(userId, "blurred", startedAt, 0);
-                return response("not_food", reservation.snapshot(), Collections.emptyList());
+                return response("not_food", completedQuota, Collections.emptyList());
             }
             if (!"food".equals(visionResult.getScanType())) {
                 logCompleted(userId, visionResult.getScanType(), startedAt, 0);
-                return response(visionResult.getScanType(), reservation.snapshot(),
+                return response(visionResult.getScanType(), completedQuota,
                         Collections.emptyList());
             }
 
             List<FoodPhotoScanResponseDto.Item> items = matchingService.process(
                     userId, visionResult.getItems());
-            FoodPhotoQuotaReservationService.QuotaSnapshot updatedQuota =
-                    quotaService.commitSuccessfulFoodScan(reservation);
-            committed = true;
+            FoodPhotoQuotaReservationService.QuotaSnapshot updatedQuota = completedQuota;
+            if (premium) {
+                updatedQuota = quotaService.commitSuccessfulFoodScan(reservation);
+                committed = true;
+            }
             logCompleted(userId, visionResult.getScanType(), startedAt, items.size());
             return response(visionResult.getScanType(), updatedQuota, items);
         } finally {

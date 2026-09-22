@@ -21,7 +21,6 @@ public class NutritionLabelRateLimitExceededException extends RuntimeException {
     private static String messageFor(String scope) {
         return switch (scope) {
             case "daily" -> "Daily nutrition label photo submission limit exceeded";
-            case "monthly" -> "Monthly successful nutrition label scan quota exceeded";
             case "premium-daily" -> "Daily successful nutrition label scan quota exceeded";
             default -> scope + " nutrition label scan limit exceeded";
         };

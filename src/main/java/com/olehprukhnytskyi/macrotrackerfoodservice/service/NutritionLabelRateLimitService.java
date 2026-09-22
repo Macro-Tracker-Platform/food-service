@@ -4,7 +4,6 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.exception.NutritionLabelRate
 import com.olehprukhnytskyi.macrotrackerfoodservice.properties.GeminiProperties;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.YearMonth;
 import java.time.ZonedDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -16,10 +15,8 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class NutritionLabelRateLimitService {
     private static final String REQUEST_DAILY_PREFIX = "nutrition-scan:request:daily:";
-    private static final String SUCCESS_MONTHLY_PREFIX = "nutrition-scan:success:monthly:";
     private static final String SUCCESS_DAILY_PREFIX = "nutrition-scan:success:daily:";
     private static final String REQUEST_SCOPE = "daily";
-    private static final String FREE_SUCCESS_SCOPE = "monthly";
     private static final String PREMIUM_SUCCESS_SCOPE = "premium-daily";
     private static final long REQUEST_WINDOW_SECONDS = Duration.ofHours(24).toSeconds();
     private static final DefaultRedisScript<Long> CHECK_SCRIPT =
@@ -59,9 +56,8 @@ public class NutritionLabelRateLimitService {
         return new RequestReservation(window.limit(), (int) used, window.resetAt());
     }
 
-    public SuccessfulScanQuota ensureSuccessfulScanQuotaAvailable(Long userId,
-                                                                  boolean premium) {
-        QuotaWindow window = successfulScanWindow(userId, premium);
+    public SuccessfulScanQuota ensurePremiumSuccessfulScanQuotaAvailable(Long userId) {
+        QuotaWindow window = premiumSuccessfulScanWindow(userId);
         Long result = redisTemplate.execute(
                 CHECK_SCRIPT,
                 List.of(window.key()),
@@ -75,8 +71,8 @@ public class NutritionLabelRateLimitService {
                 window.resetAt());
     }
 
-    public SuccessfulScanQuota recordSuccessfulScan(Long userId, boolean premium) {
-        QuotaWindow window = successfulScanWindow(userId, premium);
+    public SuccessfulScanQuota recordPremiumSuccessfulScan(Long userId) {
+        QuotaWindow window = premiumSuccessfulScanWindow(userId);
         Long result = redisTemplate.execute(
                 INCREMENT_SCRIPT,
                 List.of(window.key()),
@@ -103,27 +99,15 @@ public class NutritionLabelRateLimitService {
         );
     }
 
-    private QuotaWindow successfulScanWindow(Long userId, boolean premium) {
+    private QuotaWindow premiumSuccessfulScanWindow(Long userId) {
         GeminiProperties.NutritionLabelScan properties = scanProperties();
         ZonedDateTime now = ZonedDateTime.now(properties.getRateLimitZone());
-        if (premium) {
-            Instant resetAt = now.toLocalDate().plusDays(1)
-                    .atStartOfDay(now.getZone()).toInstant();
-            return new QuotaWindow(
-                    SUCCESS_DAILY_PREFIX + userId + ":" + now.toLocalDate(),
-                    PREMIUM_SUCCESS_SCOPE,
-                    properties.getProSuccessfulDailyLimit(),
-                    resetAt,
-                    secondsUntil(now.toInstant(), resetAt)
-            );
-        }
-        YearMonth month = YearMonth.from(now);
-        Instant resetAt = month.plusMonths(1).atDay(1)
+        Instant resetAt = now.toLocalDate().plusDays(1)
                 .atStartOfDay(now.getZone()).toInstant();
         return new QuotaWindow(
-                SUCCESS_MONTHLY_PREFIX + userId + ":" + month,
-                FREE_SUCCESS_SCOPE,
-                properties.getFreeSuccessfulMonthlyLimit(),
+                SUCCESS_DAILY_PREFIX + userId + ":" + now.toLocalDate(),
+                PREMIUM_SUCCESS_SCOPE,
+                properties.getProSuccessfulDailyLimit(),
                 resetAt,
                 secondsUntil(now.toInstant(), resetAt)
         );

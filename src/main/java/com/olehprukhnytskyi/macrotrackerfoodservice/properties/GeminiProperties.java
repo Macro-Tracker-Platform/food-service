@@ -28,6 +28,7 @@ public class GeminiProperties {
     private String foodVoicePrompt;
 
     private NutritionLabelScan nutritionLabelScan = new NutritionLabelScan();
+    private AiCredits aiCredits = new AiCredits();
     private FoodPhotoScan foodPhotoScan = new FoodPhotoScan();
     private FoodVoiceScan foodVoiceScan = new FoodVoiceScan();
 
@@ -35,8 +36,6 @@ public class GeminiProperties {
     public static class NutritionLabelScan {
         @Min(1)
         private int requestDailyLimit = 50;
-        @Min(1)
-        private int freeSuccessfulMonthlyLimit = 3;
         @Min(1)
         private int proSuccessfulDailyLimit = 30;
         @Min(1)
@@ -54,6 +53,12 @@ public class GeminiProperties {
         @Min(1)
         private long defaultRetryAfterSeconds = 60;
         private ZoneId rateLimitZone = ZoneId.of("UTC");
+    }
+
+    @Data
+    public static class AiCredits {
+        @Min(30)
+        private long reservationTtlSeconds = 180;
     }
 
     @Data

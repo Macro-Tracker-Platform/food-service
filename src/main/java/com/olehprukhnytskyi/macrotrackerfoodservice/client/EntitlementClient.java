@@ -1,12 +1,10 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.client;
 
-import com.olehprukhnytskyi.macrotrackerfoodservice.dto.BarcodeScanQuotaDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.EntitlementDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoScanCreditDto;
 import com.olehprukhnytskyi.util.CustomHeaders;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 
@@ -20,30 +18,12 @@ public interface EntitlementClient {
             @RequestHeader(value = APP_VERSION_CODE_HEADER, required = false)
             String appVersionCode);
 
-    @PostMapping("/api/users/me/barcode-scans/{barcode}/reserve")
-    BarcodeScanQuotaDto reserveBarcodeScan(
-            @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
-            @PathVariable String barcode);
-
-    @GetMapping("/api/users/me/food-photo-scans/credits")
-    FoodPhotoScanCreditDto getFoodPhotoScanCredits(
+    @GetMapping("/api/users/me/ai-scans/credits")
+    FoodPhotoScanCreditDto getAiScanCredits(
             @RequestHeader(CustomHeaders.X_USER_ID) Long userId);
 
-    @PostMapping("/api/users/me/food-photo-scans/consume")
-    FoodPhotoScanCreditDto consumeFoodPhotoScanCredit(
-            @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey);
-
-    default FoodPhotoScanCreditDto consumeFoodPhotoScanCredit(Long userId) {
-        return consumeFoodPhotoScanCredit(userId, null);
-    }
-
-    @GetMapping("/api/users/me/voice-food-scans/credits")
-    FoodPhotoScanCreditDto getVoiceFoodScanCredits(
-            @RequestHeader(CustomHeaders.X_USER_ID) Long userId);
-
-    @PostMapping("/api/users/me/voice-food-scans/consume")
-    FoodPhotoScanCreditDto consumeVoiceFoodScanCredit(
+    @PostMapping("/api/users/me/ai-scans/consume")
+    FoodPhotoScanCreditDto consumeAiScanCredit(
             @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey);
 }

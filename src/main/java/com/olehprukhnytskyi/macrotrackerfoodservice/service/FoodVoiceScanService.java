@@ -51,17 +51,25 @@ public class FoodVoiceScanService {
         try {
             GeminiFoodPhotoScanDto voiceResult = geminiService.scanFoodVoice(
                     audio, acceptLanguage);
+            FoodVoiceQuotaReservationService.QuotaSnapshot completedQuota =
+                    reservation.snapshot();
+            if (!premium) {
+                completedQuota = quotaService.commitSuccessfulFoodScan(reservation);
+                committed = true;
+            }
             if (!"food".equals(voiceResult.getScanType())) {
                 logCompleted(userId, voiceResult.getScanType(), startedAt, 0);
-                return response(voiceResult.getScanType(), reservation.snapshot(),
+                return response(voiceResult.getScanType(), completedQuota,
                         Collections.emptyList());
             }
 
             List<FoodPhotoScanResponseDto.Item> items = matchingService.process(
                     userId, voiceResult.getItems());
-            FoodVoiceQuotaReservationService.QuotaSnapshot updatedQuota =
-                    quotaService.commitSuccessfulFoodScan(reservation);
-            committed = true;
+            FoodVoiceQuotaReservationService.QuotaSnapshot updatedQuota = completedQuota;
+            if (premium) {
+                updatedQuota = quotaService.commitSuccessfulFoodScan(reservation);
+                committed = true;
+            }
             logCompleted(userId, voiceResult.getScanType(), startedAt, items.size());
             return response(voiceResult.getScanType(), updatedQuota, items);
         } finally {

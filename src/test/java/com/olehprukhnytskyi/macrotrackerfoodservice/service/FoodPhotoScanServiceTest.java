@@ -137,7 +137,7 @@ class FoodPhotoScanServiceTest {
     }
 
     @Test
-    void blurredFoodPhotoReleasesReservationWithoutCharging() {
+    void blurredFreePhotoStillConsumesOneAiCredit() {
         EntitlementDto entitlement = new EntitlementDto();
         entitlement.setPlan("FREE");
         FoodPhotoQuotaReservationService.Reservation reservation =
@@ -152,12 +152,14 @@ class FoodPhotoScanServiceTest {
                         .imageQuality("blurred")
                         .items(Collections.emptyList())
                         .build());
+        when(quotaService.commitSuccessfulFoodScan(reservation))
+                .thenReturn(new FoodPhotoQuotaReservationService.QuotaSnapshot(false, 4));
 
         FoodPhotoScanResponseDto response = service.scan(42L, null, image);
 
         assertThat(response.getScanType()).isEqualTo("not_food");
-        assertThat(response.getRemainingScans()).isEqualTo(5);
-        verify(quotaService, never()).commitSuccessfulFoodScan(reservation);
-        verify(quotaService).release(reservation);
+        assertThat(response.getRemainingScans()).isEqualTo(4);
+        verify(quotaService).commitSuccessfulFoodScan(reservation);
+        verify(quotaService, never()).release(reservation);
     }
 }

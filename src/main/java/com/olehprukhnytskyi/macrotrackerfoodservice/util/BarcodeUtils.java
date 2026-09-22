@@ -7,7 +7,7 @@ public final class BarcodeUtils {
     private BarcodeUtils() {
     }
 
-    public static String normalizeForQuota(String rawBarcode) {
+    private static String normalizeAlias(String rawBarcode) {
         String barcode = requireBarcode(rawBarcode);
         if (isNumeric(barcode) && barcode.length() == 13 && barcode.startsWith("0")) {
             return barcode.substring(1);
@@ -19,7 +19,7 @@ public final class BarcodeUtils {
         List<String> candidates = new ArrayList<>();
         String barcode = requireBarcode(rawBarcode);
         addIfPresent(candidates, barcode);
-        String normalized = normalizeForQuota(barcode);
+        String normalized = normalizeAlias(barcode);
         addIfPresent(candidates, normalized);
         if (isNumeric(normalized) && normalized.length() == 12) {
             addIfPresent(candidates, "0" + normalized);

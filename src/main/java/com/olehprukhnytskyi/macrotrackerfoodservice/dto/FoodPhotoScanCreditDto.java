@@ -1,6 +1,7 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -11,7 +12,10 @@ import lombok.NoArgsConstructor;
 public class FoodPhotoScanCreditDto {
     private boolean allowed;
     private boolean consumed;
+    private int limit;
 
     @JsonProperty("remaining_scans")
     private int remainingScans;
+
+    private Instant resetAt;
 }

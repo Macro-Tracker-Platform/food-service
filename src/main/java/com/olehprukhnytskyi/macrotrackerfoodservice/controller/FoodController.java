@@ -11,7 +11,6 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodVoiceBase64RequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
-import com.olehprukhnytskyi.macrotrackerfoodservice.service.BarcodeScanExceptionHandler;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.BarcodeScanService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodPhotoScanService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
@@ -62,27 +61,13 @@ public class FoodController {
 
     @Operation(
             summary = "Scan a food barcode",
-            description = "Resolve a barcode after atomically enforcing the user's scan allowance"
+            description = "Resolve a food product by barcode"
     )
     @PostMapping("/barcode/{barcode}/scan")
     public ResponseEntity<FoodResponseDto> scanBarcode(
             @RequestHeader(CustomHeaders.X_USER_ID) Long userId,
             @PathVariable String barcode) {
-        BarcodeScanService.ScanResult result = barcodeScanService.scan(userId, barcode);
-        ResponseEntity.BodyBuilder response = ResponseEntity.ok();
-        if (result.quota().isUnlimited()) {
-            response.header("X-Barcode-Scan-Unlimited", "true");
-        } else {
-            response.header(BarcodeScanExceptionHandler.LIMIT_HEADER,
-                    String.valueOf(result.quota().getLimit()));
-            response.header(BarcodeScanExceptionHandler.REMAINING_HEADER,
-                    String.valueOf(result.quota().getRemaining()));
-            if (result.quota().getResetAt() != null) {
-                response.header(BarcodeScanExceptionHandler.RESET_AT_HEADER,
-                        result.quota().getResetAt().toString());
-            }
-        }
-        return response.body(result.food());
+        return ResponseEntity.ok(barcodeScanService.scan(userId, barcode));
     }
 
     @Operation(

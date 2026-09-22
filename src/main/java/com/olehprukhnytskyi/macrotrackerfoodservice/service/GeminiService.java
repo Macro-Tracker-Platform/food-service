@@ -334,7 +334,7 @@ public class GeminiService {
                                 "type", "STRING",
                                 "description", "STRICTLY base ingredient name in the"
                                                + " requested language. NO cooking methods,"
-                                               + " NO states, NO parentheses)."
+                                               + " NO states, NO parentheses, NO adjectives)."
                         ),
                         "estimation_rationale", Map.of(
                                 "type", "STRING",
@@ -404,8 +404,8 @@ public class GeminiService {
                         ),
                         "search_name", Map.of(
                                 "type", "STRING",
-                                "description", "Canonical base food name strictly in English"
-                                               + " for DB search. No cooking states or adjectives."
+                                "description", "Canonical base food name "
+                                               + "for DB search. No cooking states or adjectives."
                         ),
                         "estimation_rationale", Map.of(
                                 "type", "STRING",

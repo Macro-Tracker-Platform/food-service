@@ -2,9 +2,8 @@ package com.olehprukhnytskyi.macrotrackerfoodservice.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,148 +31,135 @@ class NutritionLabelScanServiceTest {
     @Mock
     private GeminiService geminiService;
     @Mock
-    private MultipartFile image;
+    private NutritionLabelRateLimitService rateLimitService;
+    @Mock
+    private AiCreditReservationService aiCreditReservationService;
     @Mock
     private EntitlementClient entitlementClient;
+    @Mock
+    private MultipartFile image;
 
     private NutritionLabelScanService scanService;
-    private NutritionLabelRateLimitService rateLimitService;
 
     @BeforeEach
     void setUp() {
-        rateLimitService = mock(NutritionLabelRateLimitService.class);
         scanService = new NutritionLabelScanService(
-                imageService, geminiService, rateLimitService, entitlementClient);
-        EntitlementDto entitlement = new EntitlementDto();
-        entitlement.setPlan("FREE");
-        when(entitlementClient.getEntitlement(USER_ID, null)).thenReturn(entitlement);
+                imageService,
+                geminiService,
+                rateLimitService,
+                aiCreditReservationService,
+                entitlementClient);
     }
 
     @Test
-    void scan_whenGeminiSucceedsForFreeUser_shouldConsumeMonthlySuccessfulQuota() {
-        NutritionLabelRateLimitService.SuccessfulScanQuota availableQuota =
-                quota("monthly", 3, 0);
-        NutritionLabelRateLimitService.SuccessfulScanQuota consumedQuota =
-                quota("monthly", 3, 1);
-        NutritionLabelScanResponseDto expected = responseWithNutriments();
-
-        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, false))
-                .thenReturn(availableQuota);
-        when(rateLimitService.recordSuccessfulScan(USER_ID, false))
-                .thenReturn(consumedQuota);
-        when(geminiService.scanNutritionLabel(image)).thenReturn(expected);
+    void successfulFreeScanConsumesOneSharedDailyCredit() {
+        givenPlan("FREE", false);
+        AiCreditReservationService.Reservation reservation = freeReservation();
+        when(aiCreditReservationService.reserve(
+                org.mockito.ArgumentMatchers.eq(USER_ID), startsWith("nutrition-label:")))
+                .thenReturn(reservation);
+        when(aiCreditReservationService.commit(reservation))
+                .thenReturn(new AiCreditReservationService.QuotaSnapshot(
+                        3, 2, reservation.resetAt()));
+        NutritionLabelScanResponseDto response = responseWithNutriments();
+        when(geminiService.scanNutritionLabel(image)).thenReturn(response);
 
         NutritionLabelScanResponseDto actual = scanService.scan(USER_ID, null, image);
 
-        assertThat(actual).isSameAs(expected);
         assertThat(actual.getQuota().getLimit()).isEqualTo(3);
         assertThat(actual.getQuota().getRemaining()).isEqualTo(2);
-        verify(imageService).validateImage(image);
-        verify(rateLimitService).reserveRequest(USER_ID);
+        verify(aiCreditReservationService).commit(reservation);
+        verify(rateLimitService, never()).ensurePremiumSuccessfulScanQuotaAvailable(USER_ID);
     }
 
     @Test
-    void scan_forProUser_shouldApplyPremiumDailySuccessfulQuota() {
-        EntitlementDto entitlement = new EntitlementDto();
-        entitlement.setPlan("PRO");
-        when(entitlementClient.getEntitlement(USER_ID, null)).thenReturn(entitlement);
-        NutritionLabelRateLimitService.SuccessfulScanQuota availableQuota =
-                quota("premium-daily", 30, 0);
-        NutritionLabelRateLimitService.SuccessfulScanQuota consumedQuota =
-                quota("premium-daily", 30, 1);
-        NutritionLabelScanResponseDto response = responseWithNutriments();
-
-        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, true))
-                .thenReturn(availableQuota);
-        when(rateLimitService.recordSuccessfulScan(USER_ID, true))
-                .thenReturn(consumedQuota);
-        when(geminiService.scanNutritionLabel(image)).thenReturn(response);
+    void completedFreeScanConsumesCreditEvenWithoutParsedNutrients() {
+        givenPlan("FREE", false);
+        AiCreditReservationService.Reservation reservation = freeReservation();
+        when(aiCreditReservationService.reserve(
+                org.mockito.ArgumentMatchers.eq(USER_ID), startsWith("nutrition-label:")))
+                .thenReturn(reservation);
+        when(geminiService.scanNutritionLabel(image))
+                .thenReturn(new NutritionLabelScanResponseDto());
+        when(aiCreditReservationService.commit(reservation))
+                .thenReturn(new AiCreditReservationService.QuotaSnapshot(
+                        3, 2, reservation.resetAt()));
 
         NutritionLabelScanResponseDto actual = scanService.scan(USER_ID, null, image);
 
-        assertThat(actual.getQuota().getLimit()).isEqualTo(30);
-        assertThat(actual.getQuota().getRemaining()).isEqualTo(29);
+        assertThat(actual.getQuota().getRemaining()).isEqualTo(2);
+        verify(aiCreditReservationService).commit(reservation);
+        verify(aiCreditReservationService, never()).release(reservation);
     }
 
     @Test
-    void scan_forLegacyFreeUser_shouldApplyPremiumDailySuccessfulQuota() {
-        EntitlementDto entitlement = new EntitlementDto();
-        entitlement.setPlan("LEGACY_FREE");
-        entitlement.setLegacyAccess(true);
-        when(entitlementClient.getEntitlement(USER_ID, null)).thenReturn(entitlement);
-        NutritionLabelRateLimitService.SuccessfulScanQuota availableQuota =
-                quota("premium-daily", 30, 0);
-        NutritionLabelRateLimitService.SuccessfulScanQuota consumedQuota =
-                quota("premium-daily", 30, 1);
-        NutritionLabelScanResponseDto response = responseWithNutriments();
-
-        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, true))
-                .thenReturn(availableQuota);
-        when(rateLimitService.recordSuccessfulScan(USER_ID, true))
-                .thenReturn(consumedQuota);
-        when(geminiService.scanNutritionLabel(image)).thenReturn(response);
-
-        NutritionLabelScanResponseDto actual = scanService.scan(USER_ID, null, image);
-
-        assertThat(actual.getQuota().getLimit()).isEqualTo(30);
-        assertThat(actual.getQuota().getRemaining()).isEqualTo(29);
-    }
-
-    @Test
-    void scan_whenGeminiIsTemporaryUnavailable_shouldKeepRequestCountAndNotConsumeSuccessQuota() {
-        NutritionLabelRateLimitService.SuccessfulScanQuota availableQuota =
-                quota("monthly", 3, 0);
-
-        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, false))
-                .thenReturn(availableQuota);
+    void failedFreeScanReleasesReservation() {
+        givenPlan("FREE", false);
+        AiCreditReservationService.Reservation reservation = freeReservation();
+        when(aiCreditReservationService.reserve(
+                org.mockito.ArgumentMatchers.eq(USER_ID), startsWith("nutrition-label:")))
+                .thenReturn(reservation);
         when(geminiService.scanNutritionLabel(image))
                 .thenThrow(new GeminiTemporaryUnavailableException(60, null));
 
         assertThatThrownBy(() -> scanService.scan(USER_ID, null, image))
                 .isInstanceOf(GeminiTemporaryUnavailableException.class);
-        verify(rateLimitService).reserveRequest(USER_ID);
-        verify(rateLimitService, never()).recordSuccessfulScan(USER_ID, false);
+
+        verify(aiCreditReservationService).release(reservation);
+        verify(aiCreditReservationService, never()).commit(reservation);
     }
 
     @Test
-    void scan_whenNoNutrientsAreParsed_shouldNotConsumeSuccessQuota() {
-        NutritionLabelRateLimitService.SuccessfulScanQuota availableQuota =
-                quota("monthly", 3, 0);
-        NutritionLabelScanResponseDto response = new NutritionLabelScanResponseDto();
-
-        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, false))
-                .thenReturn(availableQuota);
-        when(geminiService.scanNutritionLabel(image)).thenReturn(response);
+    void premiumScanKeepsExistingDailyAntiAbuseQuota() {
+        givenPlan("PRO", false);
+        NutritionLabelRateLimitService.SuccessfulScanQuota available =
+                premiumQuota(0);
+        NutritionLabelRateLimitService.SuccessfulScanQuota consumed =
+                premiumQuota(1);
+        when(rateLimitService.ensurePremiumSuccessfulScanQuotaAvailable(USER_ID))
+                .thenReturn(available);
+        when(rateLimitService.recordPremiumSuccessfulScan(USER_ID)).thenReturn(consumed);
+        when(geminiService.scanNutritionLabel(image)).thenReturn(responseWithNutriments());
 
         NutritionLabelScanResponseDto actual = scanService.scan(USER_ID, null, image);
 
-        assertThat(actual.getQuota().getLimit()).isEqualTo(3);
-        assertThat(actual.getQuota().getRemaining()).isEqualTo(3);
-        verify(rateLimitService, never()).recordSuccessfulScan(USER_ID, false);
+        assertThat(actual.getQuota().getLimit()).isEqualTo(30);
+        assertThat(actual.getQuota().getRemaining()).isEqualTo(29);
+        verify(aiCreditReservationService, never()).reserve(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
-    void scan_whenRequestDailyLimitExceeded_shouldNotCallGemini() {
+    void requestAntiAbuseLimitStillStopsBeforeAiCreditReservation() {
+        givenPlan("FREE", false);
         when(rateLimitService.reserveRequest(USER_ID))
                 .thenThrow(new NutritionLabelRateLimitExceededException(
                         "daily", 120, 50, Instant.now().plusSeconds(120)));
 
         assertThatThrownBy(() -> scanService.scan(USER_ID, null, image))
                 .isInstanceOf(NutritionLabelRateLimitExceededException.class);
-        verify(rateLimitService, never()).ensureSuccessfulScanQuotaAvailable(USER_ID, false);
-        verify(geminiService, times(0)).scanNutritionLabel(image);
+
+        verify(aiCreditReservationService, never()).reserve(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString());
+        verify(geminiService, never()).scanNutritionLabel(image);
     }
 
-    @Test
-    void scan_whenSuccessfulMonthlyQuotaExceeded_shouldNotCallGemini() {
-        when(rateLimitService.ensureSuccessfulScanQuotaAvailable(USER_ID, false))
-                .thenThrow(new NutritionLabelRateLimitExceededException(
-                        "monthly", 120, 3, Instant.now().plusSeconds(120)));
+    private void givenPlan(String plan, boolean legacyAccess) {
+        EntitlementDto entitlement = new EntitlementDto();
+        entitlement.setPlan(plan);
+        entitlement.setLegacyAccess(legacyAccess);
+        when(entitlementClient.getEntitlement(USER_ID, null)).thenReturn(entitlement);
+    }
 
-        assertThatThrownBy(() -> scanService.scan(USER_ID, null, image))
-                .isInstanceOf(NutritionLabelRateLimitExceededException.class);
-        verify(rateLimitService).reserveRequest(USER_ID);
-        verify(geminiService, times(0)).scanNutritionLabel(image);
+    private AiCreditReservationService.Reservation freeReservation() {
+        return new AiCreditReservationService.Reservation(
+                USER_ID,
+                "nutrition-label:test",
+                3,
+                3,
+                Instant.now().plusSeconds(3600));
     }
 
     private NutritionLabelScanResponseDto responseWithNutriments() {
@@ -183,10 +169,8 @@ class NutritionLabelScanServiceTest {
                         .build());
     }
 
-    private NutritionLabelRateLimitService.SuccessfulScanQuota quota(String scope,
-                                                                     int limit,
-                                                                     int used) {
+    private NutritionLabelRateLimitService.SuccessfulScanQuota premiumQuota(int used) {
         return new NutritionLabelRateLimitService.SuccessfulScanQuota(
-                scope, limit, used, Instant.now().plusSeconds(120));
+                "premium-daily", 30, used, Instant.now().plusSeconds(3600));
     }
 }

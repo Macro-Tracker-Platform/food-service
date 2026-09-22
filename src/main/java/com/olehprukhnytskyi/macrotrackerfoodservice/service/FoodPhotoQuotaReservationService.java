@@ -1,7 +1,5 @@
 package com.olehprukhnytskyi.macrotrackerfoodservice.service;
 
-import com.olehprukhnytskyi.macrotrackerfoodservice.client.EntitlementClient;
-import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoScanCreditDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.exception.FoodPhotoScanLimitException;
 import com.olehprukhnytskyi.macrotrackerfoodservice.properties.GeminiProperties;
 import java.time.Duration;
@@ -21,7 +19,7 @@ public class FoodPhotoQuotaReservationService {
     static final String PREMIUM_PREFIX = "scans:premium:";
     static final String PREMIUM_INFLIGHT_PREFIX = "scans:premium:inflight:";
     static final String PREMIUM_COMPLETED_PREFIX = "scans:premium:completed:";
-    static final String FREE_INFLIGHT_PREFIX = "scans:free:inflight:";
+    private static final String FREE_TOKEN_PREFIX = "food-photo:";
     private static final long PREMIUM_TTL_SECONDS = Duration.ofHours(24).toSeconds();
 
     private static final DefaultRedisScript<Long> RESERVE_SCRIPT =
@@ -33,15 +31,6 @@ public class FoodPhotoQuotaReservationService {
                     redis.call('ZADD', KEYS[2], ARGV[3], ARGV[4])
                     redis.call('EXPIRE', KEYS[2], ARGV[5])
                     return used
-                    """, Long.class);
-    private static final DefaultRedisScript<Long> RESERVE_FREE_SCRIPT =
-            new DefaultRedisScript<>("""
-                    redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[2])
-                    local inflight = redis.call('ZCARD', KEYS[1])
-                    if inflight >= tonumber(ARGV[1]) then return -1 end
-                    redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])
-                    redis.call('EXPIRE', KEYS[1], ARGV[5])
-                    return inflight
                     """, Long.class);
     private static final DefaultRedisScript<Long> COMMIT_PREMIUM_SCRIPT =
             new DefaultRedisScript<>("""
@@ -62,7 +51,7 @@ public class FoodPhotoQuotaReservationService {
                     Long.class);
 
     private final StringRedisTemplate redisTemplate;
-    private final EntitlementClient entitlementClient;
+    private final AiCreditReservationService aiCreditReservationService;
     private final GeminiProperties properties;
 
     public Reservation reserve(Long userId, boolean premium, String requestToken) {
@@ -71,7 +60,9 @@ public class FoodPhotoQuotaReservationService {
         long now = Instant.now().getEpochSecond();
         long expiresAt = now + reservationTtlSeconds();
         if (!premium) {
-            return reserveFree(userId, token, now, expiresAt);
+            AiCreditReservationService.Reservation sharedReservation =
+                    aiCreditReservationService.reserve(userId, freeToken(token));
+            return new Reservation(userId, token, false, sharedReservation.remaining());
         }
         Long used = redisTemplate.execute(
                 RESERVE_SCRIPT,
@@ -89,29 +80,6 @@ public class FoodPhotoQuotaReservationService {
             throw dailyLimitReached();
         }
         return new Reservation(userId, token, true, premiumLimit() - used.intValue());
-    }
-
-    private Reservation reserveFree(Long userId, String token, long now, long expiresAt) {
-        FoodPhotoScanCreditDto credits = entitlementClient.getFoodPhotoScanCredits(userId);
-        if (credits == null || credits.getRemainingScans() <= 0) {
-            throw freeLimitReached();
-        }
-        Long result = redisTemplate.execute(
-                RESERVE_FREE_SCRIPT,
-                List.of(freeInflightKey(userId)),
-                String.valueOf(credits.getRemainingScans()),
-                String.valueOf(now),
-                String.valueOf(expiresAt),
-                token,
-                String.valueOf(reservationTtlSeconds())
-        );
-        if (result == null) {
-            throw new IllegalStateException("Could not reserve free food photo scan quota");
-        }
-        if (result < 0) {
-            throw freeLimitReached();
-        }
-        return new Reservation(userId, token, false, credits.getRemainingScans());
     }
 
     public QuotaSnapshot commitSuccessfulFoodScan(Reservation reservation) {
@@ -137,26 +105,18 @@ public class FoodPhotoQuotaReservationService {
     }
 
     private QuotaSnapshot commitFree(Reservation reservation) {
-        try {
-            FoodPhotoScanCreditDto credits = entitlementClient.consumeFoodPhotoScanCredit(
-                    reservation.userId(), reservation.token());
-            if (credits == null) {
-                throw new IllegalStateException("Could not consume food photo scan credit");
-            }
-            if (!credits.isConsumed()) {
-                throw freeLimitReached();
-            }
-            return new QuotaSnapshot(false, credits.getRemainingScans());
-        } finally {
-            release(reservation);
-        }
+        AiCreditReservationService.QuotaSnapshot quota =
+                aiCreditReservationService.commit(sharedReservation(reservation));
+        return new QuotaSnapshot(false, quota.remaining());
     }
 
     public void release(Reservation reservation) {
-        String key = reservation.premium()
-                ? premiumInflightKey(reservation.userId())
-                : freeInflightKey(reservation.userId());
-        redisTemplate.execute(RELEASE_SCRIPT, List.of(key), reservation.token());
+        if (!reservation.premium()) {
+            aiCreditReservationService.release(sharedReservation(reservation));
+            return;
+        }
+        redisTemplate.execute(RELEASE_SCRIPT,
+                List.of(premiumInflightKey(reservation.userId())), reservation.token());
     }
 
     private long reservationTtlSeconds() {
@@ -179,16 +139,19 @@ public class FoodPhotoQuotaReservationService {
         return PREMIUM_COMPLETED_PREFIX + userId + ":" + quotaDate();
     }
 
-    private String freeInflightKey(Long userId) {
-        return FREE_INFLIGHT_PREFIX + userId;
+    private String freeToken(String token) {
+        return FREE_TOKEN_PREFIX + token;
+    }
+
+    private AiCreditReservationService.Reservation sharedReservation(
+            Reservation reservation) {
+        return new AiCreditReservationService.Reservation(
+                reservation.userId(), freeToken(reservation.token()),
+                0, reservation.remaining(), null);
     }
 
     private LocalDate quotaDate() {
         return LocalDate.now(properties.getFoodPhotoScan().getQuotaZone());
-    }
-
-    private FoodPhotoScanLimitException freeLimitReached() {
-        return new FoodPhotoScanLimitException(HttpStatus.FORBIDDEN, "FREE_LIMIT_REACHED");
     }
 
     private FoodPhotoScanLimitException dailyLimitReached() {
