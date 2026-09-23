@@ -41,6 +41,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsLabelResponseDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutrimentsPatchDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.exception.NutritionLabelRateLimitExceededException;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
@@ -687,7 +688,11 @@ class FoodControllerTest extends AbstractIntegrationTest {
     void customizeFood_whenSuccessful_shouldReturn201() throws Exception {
         // Given
         String originalId = "11111111";
-        Long userId = 1L;
+        final Long userId = 1L;
+        Food original = foodRepository.findById(originalId).orElseThrow();
+        original.setModerationStatus(ModerationStatus.APPROVED);
+        original.setVerifiedByAdmin(true);
+        foodRepository.save(original);
         FoodPatchRequestDto patchDto = FoodPatchRequestDto.builder()
                 .productName("Customized Apple")
                 .build();
@@ -717,6 +722,53 @@ class FoodControllerTest extends AbstractIntegrationTest {
                 )
                 .andExpect(status().isCreated())
                 .andExpect(content().json(objectMapper.writeValueAsString(expected)));
+    }
+
+    @Test
+    @DisplayName("When own food is not moderated, should update the same record and nutrients")
+    void customizeFood_whenOwnFoodIsNotModerated_shouldUpdateSameRecord() throws Exception {
+        // Given
+        String foodId = "11111111";
+        Long userId = 1L;
+        FoodPatchRequestDto patchDto = FoodPatchRequestDto.builder()
+                .productName("Updated Rice")
+                .nutriments(NutrimentsPatchDto.builder()
+                        .caloriesPer100(BigDecimal.valueOf(321))
+                        .carbohydratesPer100(BigDecimal.valueOf(54))
+                        .fatPer100(BigDecimal.valueOf(7))
+                        .proteinPer100(BigDecimal.valueOf(12))
+                        .build())
+                .build();
+
+        // When & Then
+        mockMvc.perform(
+                        post("/api/foods/{id}/customize", foodId)
+                                .header(CustomHeaders.X_USER_ID, userId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchDto))
+                )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(foodId))
+                .andExpect(jsonPath("$.code").value(foodId))
+                .andExpect(jsonPath("$.productName").value("Updated Rice"))
+                .andExpect(jsonPath("$.moderationStatus")
+                        .value(ModerationStatus.NONE.name()))
+                .andExpect(jsonPath("$.nutriments.caloriesPer100").value(321))
+                .andExpect(jsonPath("$.nutriments.carbohydratesPer100").value(54))
+                .andExpect(jsonPath("$.nutriments.fatPer100").value(7))
+                .andExpect(jsonPath("$.nutriments.proteinPer100").value(12));
+
+        Food saved = foodRepository.findById(foodId).orElseThrow();
+        assertThat(saved.getOriginalFoodId()).isNull();
+        assertThat(saved.getNutriments().getCaloriesPer100())
+                .isEqualByComparingTo("321");
+        assertThat(saved.getNutriments().getCarbohydratesPer100())
+                .isEqualByComparingTo("54");
+        assertThat(saved.getNutriments().getFatPer100())
+                .isEqualByComparingTo("7");
+        assertThat(saved.getNutriments().getProteinPer100())
+                .isEqualByComparingTo("12");
+        assertThat(foodRepository.findAll()).hasSize(3);
     }
 
     @Test

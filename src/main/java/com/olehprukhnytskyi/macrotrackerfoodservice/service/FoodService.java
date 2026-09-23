@@ -362,11 +362,15 @@ public class FoodService {
         }
         if (sourceFood.getOriginalFoodId() == null
                 && Objects.equals(sourceFood.getUserId(), userId)
-                && sourceFood.getModerationStatus() == ModerationStatus.PENDING_REVIEW) {
-            log.info("Food id={} is already a pending original owned by user={}."
+                && !sourceFood.isVerifiedByAdmin()
+                && sourceFood.getModerationStatus() != ModerationStatus.APPROVED) {
+            log.info("Food id={} is an unmoderated original owned by user={}."
                      + " Updating directly.", id, userId);
             foodMapper.updateFoodFromPatchDto(patchDto, sourceFood);
-            return withFavorite(foodMapper.toDto(foodRepository.save(sourceFood)), userId);
+            Food savedFood = foodRepository.save(sourceFood);
+            evictFoodCache(savedFood.getId());
+            evictSearchResultsCache();
+            return withFavorite(foodMapper.toDto(savedFood), userId);
         }
         String originalId = sourceFood.getOriginalFoodId() != null
                 ? sourceFood.getOriginalFoodId()

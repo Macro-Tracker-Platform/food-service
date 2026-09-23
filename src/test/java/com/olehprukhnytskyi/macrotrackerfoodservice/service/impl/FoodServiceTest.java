@@ -40,6 +40,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodAssetService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodCodeGenerator;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.ImageService;
+import com.olehprukhnytskyi.macrotrackerfoodservice.util.CacheConstants;
 import com.olehprukhnytskyi.model.OutboxEvent;
 import com.olehprukhnytskyi.repository.jpa.OutboxRepository;
 import com.olehprukhnytskyi.util.ModerationStatus;
@@ -616,6 +617,45 @@ class FoodServiceTest {
         assertEquals("newCode123", customized.getId());
         assertEquals("newCode123", customized.getCode());
         verify(foodRepository).save(customized);
+    }
+
+    @Test
+    @DisplayName("When own original is not moderated, should update it instead of creating a copy")
+    void customizeAndSubmitForReview_whenOwnOriginalIsNotModerated_shouldUpdateSameFood() {
+        // Given
+        String foodId = "2000000000418";
+        Long userId = 199L;
+        Food original = Food.builder()
+                .id(foodId)
+                .code(foodId)
+                .userId(userId)
+                .moderationStatus(ModerationStatus.NONE)
+                .verifiedByAdmin(false)
+                .build();
+        FoodPatchRequestDto patch = FoodPatchRequestDto.builder()
+                .productName("Updated food")
+                .build();
+        FoodResponseDto expected = FoodResponseDto.builder()
+                .id(foodId)
+                .productName("Updated food")
+                .build();
+
+        given(foodRepository.findById(foodId)).willReturn(Optional.of(original));
+        given(foodRepository.save(original)).willReturn(original);
+        given(foodMapper.toDto(original)).willReturn(expected);
+
+        // When
+        FoodResponseDto result = foodService
+                .customizeAndSubmitForReview(foodId, patch, userId);
+
+        // Then
+        assertEquals(foodId, result.getId());
+        verify(foodMapper).updateFoodFromPatchDto(patch, original);
+        verify(foodMapper, never()).createCustomizedCopy(any(), anyLong());
+        verify(foodCodeGenerator, never()).resolveCode(any());
+        verify(foodRepository).save(original);
+        verify(cacheManager).getCache(CacheConstants.FOOD_DATA);
+        verify(cacheManager).getCache(CacheConstants.SEARCH_RESULTS);
     }
 
     @Test
