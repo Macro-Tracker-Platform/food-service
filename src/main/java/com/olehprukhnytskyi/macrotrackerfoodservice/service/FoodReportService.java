@@ -10,6 +10,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.FoodReposit
 import com.olehprukhnytskyi.macrotrackerfoodservice.util.CacheConstants;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,7 +21,10 @@ public class FoodReportService {
     private final FoodReportRepository foodReportRepository;
 
     @Transactional
-    @CacheEvict(value = CacheConstants.SEARCH_RESULTS, allEntries = true)
+    @Caching(evict = {
+            @CacheEvict(value = CacheConstants.SEARCH_RESULTS, allEntries = true),
+            @CacheEvict(value = CacheConstants.SEARCH_SUGGESTIONS, allEntries = true)
+    })
     public void report(String foodId, Long userId, FoodReportReason reason) {
         Food food = foodRepository.findById(foodId)
                 .filter(Food::isVisible)

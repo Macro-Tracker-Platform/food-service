@@ -6,6 +6,7 @@ import com.olehprukhnytskyi.exception.NotFoundException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
 import com.olehprukhnytskyi.exception.error.FoodErrorCode;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dao.FoodSearchDao;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dao.FoodSearchResult;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodListCacheWrapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
@@ -225,7 +226,8 @@ public class FoodService {
         List<FoodResponseDto> items = searchResults == null
                 ? Collections.emptyList()
                 : searchResults.getItems();
-        return new FoodListCacheWrapper(attachFavorites(items, userId));
+        int total = searchResults == null ? 0 : searchResults.getTotal();
+        return new FoodListCacheWrapper(attachFavorites(items, userId), total);
     }
 
     @Cacheable(
@@ -238,20 +240,10 @@ public class FoodService {
     public FoodListCacheWrapper findByQueryCached(String query, Long userId,
                                                   int offset, int limit) {
         log.debug("Searching foods query='{}' offset={} limit={}", query, offset, limit);
-        Set<String> excludedIds = new HashSet<>();
-        if (userId != null) {
-            List<OriginalIdOnly> originalIds = Optional
-                    .ofNullable(foodRepository.findOriginalIdsByUserId(userId))
-                    .orElse(Collections.emptyList());
-            originalIds.stream()
-                    .map(OriginalIdOnly::getOriginalFoodId)
-                    .filter(Objects::nonNull)
-                    .forEach(excludedIds::add);
-            excludedIds.addAll(foodReportRepository.findFoodIdsByUserId(userId));
-        }
-        List<Food> foods = foodSearchDao.search(
-                query, userId, new ArrayList<>(excludedIds), offset, limit);
-        return new FoodListCacheWrapper(foodMapper.toDto(foods));
+        List<String> excludedIds = findExcludedFoodIds(userId);
+        FoodSearchResult result = foodSearchDao.search(
+                query, userId, excludedIds, offset, limit);
+        return new FoodListCacheWrapper(foodMapper.toDto(result.items()), result.total());
     }
 
     @Cacheable(
@@ -270,13 +262,33 @@ public class FoodService {
 
     @Cacheable(
             value = CacheConstants.SEARCH_SUGGESTIONS,
-            key = "T(org.springframework.util.DigestUtils)"
-                    + ".md5DigestAsHex(#query.trim().toLowerCase().getBytes())",
+            key = "T(org.springframework.util.DigestUtils).md5DigestAsHex((#query"
+                    + ".trim().toLowerCase() + '-' + (#userId != null ? #userId : 'anonymous'))"
+                    + ".getBytes())",
+            condition = "#query != null && !#query.trim().isEmpty()",
             unless = "#result == null || #result.isEmpty()"
     )
-    public List<String> getSearchSuggestions(String query) {
+    public List<String> getSearchSuggestions(String query, Long userId) {
         log.trace("Fetching search suggestions query='{}'", query);
-        return foodSearchDao.getSuggestions(query);
+        return foodSearchDao.getSuggestions(query, userId, findExcludedFoodIds(userId));
+    }
+
+    private List<String> findExcludedFoodIds(Long userId) {
+        if (userId == null) {
+            return Collections.emptyList();
+        }
+        Set<String> excludedIds = new HashSet<>();
+        List<OriginalIdOnly> originalIds = Optional
+                .ofNullable(foodRepository.findOriginalIdsByUserId(userId))
+                .orElse(Collections.emptyList());
+        originalIds.stream()
+                .map(OriginalIdOnly::getOriginalFoodId)
+                .filter(Objects::nonNull)
+                .forEach(excludedIds::add);
+        excludedIds.addAll(Optional
+                .ofNullable(foodReportRepository.findFoodIdsByUserId(userId))
+                .orElse(Collections.emptyList()));
+        return new ArrayList<>(excludedIds);
     }
 
     @CacheEvict(value = CacheConstants.FOOD_DATA, key = "#id")
@@ -605,12 +617,17 @@ public class FoodService {
 
     private void evictSearchResultsCache() {
         try {
-            Cache cache = cacheManager.getCache(CacheConstants.SEARCH_RESULTS);
-            if (cache != null) {
-                cache.clear();
-            }
+            clearCache(CacheConstants.SEARCH_RESULTS);
+            clearCache(CacheConstants.SEARCH_SUGGESTIONS);
         } catch (Exception e) {
-            log.error("Failed to evict search results cache", e);
+            log.error("Failed to evict search caches", e);
+        }
+    }
+
+    private void clearCache(String cacheName) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            cache.clear();
         }
     }
 }

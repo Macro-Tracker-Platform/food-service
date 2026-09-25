@@ -13,4 +13,11 @@ import lombok.NoArgsConstructor;
 public class FoodListCacheWrapper {
     @Schema(description = "List of food products")
     private List<FoodResponseDto> items;
+
+    @Schema(description = "Total number of matching food products")
+    private int total;
+
+    public FoodListCacheWrapper(List<FoodResponseDto> items) {
+        this(items, items == null ? 0 : items.size());
+    }
 }

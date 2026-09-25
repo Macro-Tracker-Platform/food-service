@@ -144,8 +144,9 @@ class FoodServiceCacheTest extends AbstractIntegrationTest {
         )).thenReturn(mockResponse);
 
         // When
-        List<String> first = foodService.getSearchSuggestions(query);
-        List<String> second = foodService.getSearchSuggestions(query);
+        Long userId = 1L;
+        List<String> first = foodService.getSearchSuggestions(query, userId);
+        List<String> second = foodService.getSearchSuggestions(query, userId);
 
         // Then
         verify(elasticsearchClient, times(1)).search(
@@ -155,7 +156,8 @@ class FoodServiceCacheTest extends AbstractIntegrationTest {
         );
 
         String cacheKey = CacheConstants.SEARCH_SUGGESTIONS + "::"
-                + DigestUtils.md5DigestAsHex(query.trim().toLowerCase().getBytes());
+                + DigestUtils.md5DigestAsHex(
+                        (query.trim().toLowerCase() + "-" + userId).getBytes());
         Object cached = redisTemplate.opsForValue().get(cacheKey);
         assertThat(cached).isNotNull();
 

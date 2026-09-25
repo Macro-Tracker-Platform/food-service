@@ -27,9 +27,10 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class FoodSearchDao {
-    private static final int MAX_DIVERSITY_CANDIDATES = 200;
-    private static final float APPROVED_BOOST = 100.0f;
-    private static final float VERIFIED_BY_ADMIN_BOOST = 450.0f;
+    private static final int SUGGESTION_CANDIDATE_LIMIT = 50;
+    private static final int SUGGESTION_LIMIT = 10;
+    private static final float APPROVED_BOOST = 2.0f;
+    private static final float VERIFIED_BY_ADMIN_BOOST = 5.0f;
     private static final double VERIFIED_BY_ADMIN_RANK_BOOST = 5_000.0;
     private static final double VERIFIED_RAW_FOOD_RANK_BOOST = 12_000.0;
     private static final Pattern DIACRITICS = Pattern.compile("\\p{M}");
@@ -39,8 +40,8 @@ public class FoodSearchDao {
 
     private final ElasticsearchClient elasticsearchClient;
 
-    public List<Food> search(String query, Long userId, List<String> excludedIds,
-                             int offset, int limit) {
+    public FoodSearchResult search(String query, Long userId, List<String> excludedIds,
+                                   int offset, int limit) {
         if (query == null || query.trim().isEmpty()) {
             throw new BadRequestException(CommonErrorCode.BAD_REQUEST,
                     "Query must not be null or empty");
@@ -52,16 +53,16 @@ public class FoodSearchDao {
                         "Query must contain searchable text");
             }
             Query searchQuery = buildSearchQuery(cleanQuery, userId, excludedIds);
-            boolean diversifyResults = shouldDiversify(offset, limit);
             SearchResponse<Food> response = elasticsearchClient.search(
                     s -> s.index("macro_tracker.foods")
                             .query(searchQuery)
-                            .from(diversifyResults ? 0 : offset)
-                            .size(diversifyResults ? candidateLimit(offset, limit) : limit),
+                            .from(offset)
+                            .size(limit)
+                            .trackTotalHits(t -> t.enabled(true)),
                     Food.class
             );
             if (response == null || response.hits() == null || response.hits().hits() == null) {
-                return Collections.emptyList();
+                return new FoodSearchResult(Collections.emptyList(), 0);
             }
             List<Food> foods = response.hits().hits().stream()
                     .map(hit -> {
@@ -73,28 +74,29 @@ public class FoodSearchDao {
                     })
                     .filter(Objects::nonNull)
                     .toList();
-            List<Food> rankedFoods = rankCandidates(foods, cleanQuery);
-            return diversifyResults
-                    ? diversifySimilarProducts(rankedFoods, offset, limit)
-                    : rankedFoods;
+            int total = response.hits().total() == null
+                    ? offset + foods.size()
+                    : (int) Math.min(response.hits().total().value(), Integer.MAX_VALUE);
+            return new FoodSearchResult(foods, total);
         } catch (IOException e) {
             throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
                     "Failed to execute search request", e);
-        } catch (Exception e) {
-            throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
-                    "Unexpected error during search", e);
         }
     }
 
-    public List<String> getSuggestions(String query) {
+    public List<String> getSuggestions(String query, Long userId, List<String> excludedIds) {
         if (query == null || query.trim().isEmpty()) {
             return Collections.emptyList();
         }
-        String normalized = query.trim().toLowerCase();
+        String normalized = cleanQuery(query);
+        if (normalized.isBlank()) {
+            return Collections.emptyList();
+        }
         try {
             SearchResponse<Food> response = elasticsearchClient.search(
                     s -> s.index("macro_tracker.foods")
-                            .query(buildSuggestionQuery(normalized)),
+                            .query(buildSuggestionQuery(normalized, userId, excludedIds))
+                            .size(SUGGESTION_CANDIDATE_LIMIT),
                     Food.class
             );
             if (response == null || response.hits() == null || response.hits().hits() == null) {
@@ -104,6 +106,7 @@ public class FoodSearchDao {
                     .map(hit -> hit.source() != null ? hit.source().getProductName() : null)
                     .filter(Objects::nonNull)
                     .distinct()
+                    .limit(SUGGESTION_LIMIT)
                     .collect(Collectors.toList());
         } catch (IOException e) {
             throw new InternalServerException(CommonErrorCode.INTERNAL_ERROR,
@@ -122,12 +125,20 @@ public class FoodSearchDao {
                 searchBool.should(s -> s.multiMatch(mm -> mm
                         .fields("product_name^6", "_keywords^5", "generic_name^4", "brands^4")
                         .query(cleanQuery)
+                        .type(TextQueryType.CrossFields)
                         .operator(Operator.And)
+                ));
+                searchBool.should(s -> s.multiMatch(mm -> mm
+                        .fields("product_name^5", "product_name._2gram^3",
+                                "product_name._3gram^2")
+                        .query(cleanQuery)
+                        .type(TextQueryType.BoolPrefix)
                 ));
                 searchBool.should(s -> s.multiMatch(mm -> mm
                         .fields("product_name^3", "_keywords^2", "generic_name^1")
                         .query(cleanQuery)
-                        .operator(Operator.And)
+                        .operator(Operator.Or)
+                        .minimumShouldMatch("70%")
                         .fuzziness("AUTO")
                 ));
                 if (cleanQuery.matches("^\\d{6,24}$")) {
@@ -137,19 +148,7 @@ public class FoodSearchDao {
                 searchBool.minimumShouldMatch("1");
                 return searchBool;
             }));
-            mainBool.filter(f -> f.bool(filterBool -> {
-                filterBool.should(s -> s.match(m -> m.field("moderation_status")
-                        .query("APPROVED")));
-                filterBool.should(s -> s.bool(b -> b
-                        .mustNot(mn -> mn.exists(e -> e.field("user_id")))
-                ));
-                if (userId != null) {
-                    filterBool.should(s -> s.term(t -> t.field("user_id").value(userId)));
-                }
-                filterBool.minimumShouldMatch("1");
-                return filterBool;
-            }));
-            addVisibleFilter(mainBool);
+            addAccessFilters(mainBool, userId, excludedIds);
             mainBool.should(s -> s.match(m -> m
                     .field("moderation_status")
                     .query("APPROVED")
@@ -164,25 +163,11 @@ public class FoodSearchDao {
                 mainBool.should(s -> s.term(t -> t
                         .field("user_id")
                         .value(userId)
-                        .boost(1000.0f)
+                        .boost(8.0f)
                 ));
-            }
-            if (excludedIds != null && !excludedIds.isEmpty()) {
-                mainBool.mustNot(mn -> mn.ids(i -> i.values(excludedIds)));
             }
             return mainBool;
         }));
-    }
-
-    private boolean shouldDiversify(int offset, int limit) {
-        return offset >= 0 && limit > 0 && offset + limit <= MAX_DIVERSITY_CANDIDATES;
-    }
-
-    private int candidateLimit(int offset, int limit) {
-        if (limit <= 0) {
-            return 0;
-        }
-        return MAX_DIVERSITY_CANDIDATES;
     }
 
     public List<Food> searchPhotoCandidates(List<String> queries, Long userId,
@@ -206,19 +191,7 @@ public class FoodSearchDao {
                         .fuzziness("AUTO")
                 )));
                 mainBool.minimumShouldMatch("1");
-                mainBool.filter(filter -> filter.bool(filterBool -> {
-                    filterBool.should(s -> s.match(m -> m.field("moderation_status")
-                            .query("APPROVED")));
-                    filterBool.should(s -> s.bool(b -> b
-                            .mustNot(mn -> mn.exists(e -> e.field("user_id")))
-                    ));
-                    if (userId != null) {
-                        filterBool.should(s -> s.term(t -> t.field("user_id").value(userId)));
-                    }
-                    filterBool.minimumShouldMatch("1");
-                    return filterBool;
-                }));
-                addVisibleFilter(mainBool);
+                addAccessFilters(mainBool, userId, Collections.emptyList());
                 return mainBool;
             }));
             SearchResponse<Food> response = elasticsearchClient.search(
@@ -247,6 +220,11 @@ public class FoodSearchDao {
         }
     }
 
+    /**
+     * Retained for compatibility with existing ranking tests. Search results no longer pass
+     * through this method because Elasticsearch relevance must remain authoritative.
+     */
+    @Deprecated(forRemoval = true)
     List<Food> rankCandidates(List<Food> foods, String cleanQuery) {
         List<String> queryTokens = queryTokens(cleanQuery);
         return foods.stream()
@@ -261,122 +239,69 @@ public class FoodSearchDao {
         if (queryTokens.size() <= 1) {
             return true;
         }
-        String searchableText = normalizedSearchableText(food);
+        String searchableText = normalizeText(String.join(" ",
+                Objects.toString(food.getProductName(), ""),
+                Objects.toString(food.getGenericName(), ""),
+                Objects.toString(food.getBrands(), ""),
+                food.getKeywords() == null ? "" : String.join(" ", food.getKeywords())));
         return queryTokens.stream().allMatch(searchableText::contains);
     }
 
     private double relevanceScore(Food food, String cleanQuery, List<String> queryTokens) {
         String productName = normalizeText(food.getProductName());
-        double score = 0.0;
-        if (productName.equals(cleanQuery)) {
-            score += 10_000.0;
-        }
-        if (productName.startsWith(cleanQuery + " ") || productName.startsWith(cleanQuery)) {
+        double score = productName.equals(cleanQuery) ? 10_000.0 : 0.0;
+        if (productName.startsWith(cleanQuery)) {
             score += 4_000.0;
         }
         if (productName.contains(cleanQuery)) {
             score += 1_500.0;
         }
-        if (containsAllTokens(productName, queryTokens)) {
+        if (queryTokens.stream().allMatch(productName::contains)) {
             score += 700.0;
-        }
-        if (containsTokensInOrder(productName, queryTokens)) {
-            score += 350.0;
-        }
-        int firstTokenIndex = queryTokens.isEmpty()
-                ? -1
-                : productName.indexOf(queryTokens.getFirst());
-        if (firstTokenIndex > 0) {
-            score -= Math.min(firstTokenIndex * 12.0, 500.0);
         }
         if (food.isVerifiedByAdmin()) {
             score += VERIFIED_BY_ADMIN_RANK_BOOST;
         }
-        if (food.isVerifiedByAdmin() && isVerifiedRawFood(productName, cleanQuery)) {
+        if (food.isVerifiedByAdmin()
+                && (productName.equals(cleanQuery + " raw")
+                || productName.startsWith(cleanQuery + " raw "))) {
             score += VERIFIED_RAW_FOOD_RANK_BOOST;
         }
         return score;
     }
 
-    private boolean isVerifiedRawFood(String productName, String cleanQuery) {
-        return productName.equals(cleanQuery + " raw")
-                || productName.startsWith(cleanQuery + " raw ");
-    }
-
-    private boolean containsAllTokens(String productName, List<String> queryTokens) {
-        return queryTokens.stream().allMatch(productName::contains);
-    }
-
-    private boolean containsTokensInOrder(String productName, List<String> queryTokens) {
-        int currentIndex = 0;
-        for (String token : queryTokens) {
-            int tokenIndex = productName.indexOf(token, currentIndex);
-            if (tokenIndex < 0) {
-                return false;
-            }
-            currentIndex = tokenIndex + token.length();
-        }
-        return true;
-    }
-
+    @Deprecated(forRemoval = true)
     List<Food> diversifySimilarProducts(List<Food> foods, int offset, int limit) {
-        if (foods.isEmpty() || limit <= 0) {
-            return Collections.emptyList();
-        }
         Map<String, List<Food>> groupedFoods = new LinkedHashMap<>();
         foods.forEach(food -> groupedFoods
                 .computeIfAbsent(diversityKey(food), ignored -> new ArrayList<>())
                 .add(food));
-
         List<List<Food>> groups = new ArrayList<>(groupedFoods.values());
         List<Food> diversified = new ArrayList<>(foods.size());
-        boolean added;
-        int groupRank = 0;
-        do {
-            added = false;
+        for (int rank = 0; diversified.size() < foods.size(); rank++) {
             for (List<Food> group : groups) {
-                if (groupRank < group.size()) {
-                    diversified.add(group.get(groupRank));
-                    added = true;
+                if (rank < group.size()) {
+                    diversified.add(group.get(rank));
                 }
             }
-            groupRank++;
-        } while (added);
-
-        return diversified.stream()
-                .skip(offset)
-                .limit(limit)
-                .toList();
+        }
+        return diversified.stream().skip(offset).limit(limit).toList();
     }
 
     private String diversityKey(Food food) {
-        String productName = food.getProductName();
-        if (productName == null || productName.isBlank()) {
-            return food.getId() == null ? "" : food.getId();
-        }
+        String productName = Objects.toString(food.getProductName(), "");
         String baseName = PARENS.matcher(productName).replaceAll(" ")
                 .split("[,;:/|]")[0];
         String normalized = normalizeText(baseName);
         return normalized.isEmpty() ? productName.toLowerCase(Locale.ROOT) : normalized;
     }
 
+    private List<String> queryTokens(String cleanQuery) {
+        return cleanQuery.isBlank() ? Collections.emptyList() : List.of(cleanQuery.split(" "));
+    }
+
     private String cleanQuery(String query) {
         return normalizeText(query);
-    }
-
-    private List<String> queryTokens(String cleanQuery) {
-        if (cleanQuery.isBlank()) {
-            return Collections.emptyList();
-        }
-        return List.of(cleanQuery.split(" "));
-    }
-
-    private String normalizedSearchableText(Food food) {
-        return normalizeText(String.join(" ",
-                Objects.toString(food.getProductName(), ""),
-                Objects.toString(food.getGenericName(), ""),
-                Objects.toString(food.getBrands(), ""),
-                food.getKeywords() == null ? "" : String.join(" ", food.getKeywords())));
     }
 
     private String normalizeText(String value) {
@@ -389,41 +314,49 @@ public class FoodSearchDao {
         return SPACES.matcher(normalized).replaceAll(" ").trim();
     }
 
-    private Query buildSuggestionQuery(String normalized) {
-        return Query.of(q -> q.bool(b -> b
-                .filter(f -> f.bool(filterBool -> {
-                    filterBool.should(s -> s.match(m -> m.field("moderation_status")
-                            .query("APPROVED")));
-                    filterBool.should(s -> s.bool(noUserId -> noUserId
-                            .mustNot(mn -> mn.exists(e -> e.field("user_id")))));
-                    filterBool.minimumShouldMatch("1");
-                    return filterBool;
-                }))
-                .filter(f -> f.bool(visible -> {
-                    visible.should(s -> s.term(t -> t.field("visible").value(true)));
-                    visible.should(s -> s.bool(missing -> missing
-                            .mustNot(mn -> mn.exists(e -> e.field("visible")))));
-                    visible.minimumShouldMatch("1");
-                    return visible;
-                }))
-                .should(s1 -> s1.matchPhrase(mp -> mp
+    private Query buildSuggestionQuery(String normalized, Long userId,
+                                       List<String> excludedIds) {
+        return Query.of(q -> q.bool(b -> {
+            addAccessFilters(b, userId, excludedIds);
+            b.should(s1 -> s1.matchPhrase(mp -> mp
                         .field("product_name")
                         .query(normalized)
-                        .boost(10f)))
-                .should(s2 -> s2.multiMatch(m -> m
+                        .boost(10f)));
+            b.should(s2 -> s2.multiMatch(m -> m
                         .fields("product_name",
                                 "product_name._2gram",
                                 "product_name._3gram")
                         .query(normalized)
                         .type(TextQueryType.BoolPrefix)
-                        .boost(4f)))
-                .should(s3 -> s3.match(m -> m
+                        .boost(4f)));
+            b.should(s3 -> s3.match(m -> m
                         .field("product_name_ngram")
                         .query(normalized)
                         .fuzziness("AUTO")
-                        .boost(2f)))
-                .minimumShouldMatch("1")
-        ));
+                        .boost(2f)));
+            b.minimumShouldMatch("1");
+            return b;
+        }));
+    }
+
+    private void addAccessFilters(BoolQuery.Builder query, Long userId,
+                                  List<String> excludedIds) {
+        query.filter(f -> f.bool(filterBool -> {
+            filterBool.should(s -> s.match(m -> m.field("moderation_status")
+                    .query("APPROVED")));
+            filterBool.should(s -> s.bool(b -> b
+                    .mustNot(mn -> mn.exists(e -> e.field("user_id")))
+            ));
+            if (userId != null) {
+                filterBool.should(s -> s.term(t -> t.field("user_id").value(userId)));
+            }
+            filterBool.minimumShouldMatch("1");
+            return filterBool;
+        }));
+        addVisibleFilter(query);
+        if (excludedIds != null && !excludedIds.isEmpty()) {
+            query.mustNot(mn -> mn.ids(i -> i.values(excludedIds)));
+        }
     }
 
     private void addVisibleFilter(BoolQuery.Builder query) {

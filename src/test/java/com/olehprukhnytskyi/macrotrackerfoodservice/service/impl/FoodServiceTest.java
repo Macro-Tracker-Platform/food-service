@@ -23,6 +23,7 @@ import com.olehprukhnytskyi.exception.InternalServerException;
 import com.olehprukhnytskyi.exception.NotFoundException;
 import com.olehprukhnytskyi.exception.error.CommonErrorCode;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dao.FoodSearchDao;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dao.FoodSearchResult;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodListCacheWrapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
@@ -306,7 +307,7 @@ class FoodServiceTest {
         dto.setId("123");
 
         given(foodSearchDao.search(anyString(), anyLong(), any(), anyInt(), anyInt()))
-                .willReturn(List.of(food));
+                .willReturn(new FoodSearchResult(List.of(food), 1));
         given(foodMapper.toDto(anyList())).willReturn(List.of(dto));
 
         // When
@@ -315,6 +316,7 @@ class FoodServiceTest {
         // Then
         assertNotNull(result.getItems());
         assertEquals(1, result.getItems().size());
+        assertEquals(1, result.getTotal());
         assertEquals("123", result.getItems().getFirst().getId());
     }
 
@@ -338,7 +340,7 @@ class FoodServiceTest {
         given(foodRepository.findOriginalIdsByUserId(userId))
                 .willReturn(List.of(originalIdProjection));
         given(foodSearchDao.search("curd", userId, List.of(originalId), 0, 10))
-                .willReturn(List.of(copy));
+                .willReturn(new FoodSearchResult(List.of(copy), 1));
         given(foodMapper.toDto(List.of(copy))).willReturn(List.of(copyDto));
 
         // When
@@ -357,7 +359,7 @@ class FoodServiceTest {
         given(foodReportRepository.findFoodIdsByUserId(userId))
                 .willReturn(List.of(reportedId));
         given(foodSearchDao.search("curd", userId, List.of(reportedId), 0, 10))
-                .willReturn(List.of());
+                .willReturn(new FoodSearchResult(List.of(), 0));
         given(foodMapper.toDto(List.of())).willReturn(List.of());
 
         FoodListCacheWrapper result = foodService.findByQuery("curd", userId, 0, 10);
@@ -561,14 +563,14 @@ class FoodServiceTest {
     @Test
     @DisplayName("When query is null, should return an empty list")
     void getSearchSuggestions_whenQueryIsNull_shouldReturnEmptyList() {
-        List<String> result = foodService.getSearchSuggestions(null);
+        List<String> result = foodService.getSearchSuggestions(null, null);
         assertTrue(result.isEmpty());
     }
 
     @Test
     @DisplayName("When query is blank, should return an empty list")
     void getSearchSuggestions_whenQueryIsBlank_shouldReturnEmptyList() {
-        List<String> result = foodService.getSearchSuggestions("   ");
+        List<String> result = foodService.getSearchSuggestions("   ", null);
         assertTrue(result.isEmpty());
     }
 
@@ -577,14 +579,18 @@ class FoodServiceTest {
     void getSearchSuggestions_shouldDelegateToDao() {
         // Given
         List<String> suggestions = List.of("Apple", "Apricot");
-        given(foodSearchDao.getSuggestions("ap")).willReturn(suggestions);
+        given(foodReportRepository.findFoodIdsByUserId(1L))
+                .willReturn(List.of("reported-food"));
+        given(foodSearchDao.getSuggestions("ap", 1L, List.of("reported-food")))
+                .willReturn(suggestions);
 
         // When
-        List<String> result = foodService.getSearchSuggestions("ap");
+        List<String> result = foodService.getSearchSuggestions("ap", 1L);
 
         // Then
         assertEquals(2, result.size());
         assertEquals("Apple", result.getFirst());
+        verify(foodSearchDao).getSuggestions("ap", 1L, List.of("reported-food"));
     }
 
     @Test

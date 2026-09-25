@@ -4,6 +4,7 @@ import com.olehprukhnytskyi.annotation.Idempotent;
 import com.olehprukhnytskyi.dto.PagedResponse;
 import com.olehprukhnytskyi.dto.Pagination;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodFavoriteRequestDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodListCacheWrapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoBase64RequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoScanResponseDto;
@@ -168,9 +169,9 @@ public class FoodController {
             @RequestParam(defaultValue = "0") @Min(0) int offset,
             @RequestParam(defaultValue = "25") @Min(1) int limit) {
         log.info("Searching foods query='{}' offset={} limit={}", query, offset, limit);
-        List<FoodResponseDto> foods = foodService
-                .findByQuery(query, userId, offset, limit).getItems();
-        Pagination pagination = new Pagination(offset, limit, foods.size());
+        FoodListCacheWrapper result = foodService.findByQuery(query, userId, offset, limit);
+        List<FoodResponseDto> foods = result.getItems();
+        Pagination pagination = new Pagination(offset, limit, result.getTotal());
         return ResponseEntity
                 .status(foods.isEmpty() ? HttpStatus.NO_CONTENT : HttpStatus.OK)
                 .body(new PagedResponse<>(foods, pagination));
@@ -182,9 +183,10 @@ public class FoodController {
     )
     @GetMapping("/search-suggestions")
     public ResponseEntity<List<String>> getSearchSuggestions(
-            @RequestParam String query) {
+            @RequestParam String query,
+            @RequestHeader(value = CustomHeaders.X_USER_ID, required = false) Long userId) {
         log.debug("Fetching search suggestions for query='{}'", query);
-        List<String> suggestions = foodService.getSearchSuggestions(query);
+        List<String> suggestions = foodService.getSearchSuggestions(query, userId);
         return suggestions.isEmpty()
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.ok(suggestions);
