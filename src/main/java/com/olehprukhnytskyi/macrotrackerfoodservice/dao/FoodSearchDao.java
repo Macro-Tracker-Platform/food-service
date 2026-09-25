@@ -149,6 +149,7 @@ public class FoodSearchDao {
                 filterBool.minimumShouldMatch("1");
                 return filterBool;
             }));
+            addVisibleFilter(mainBool);
             mainBool.should(s -> s.match(m -> m
                     .field("moderation_status")
                     .query("APPROVED")
@@ -217,6 +218,7 @@ public class FoodSearchDao {
                     filterBool.minimumShouldMatch("1");
                     return filterBool;
                 }));
+                addVisibleFilter(mainBool);
                 return mainBool;
             }));
             SearchResponse<Food> response = elasticsearchClient.search(
@@ -397,6 +399,13 @@ public class FoodSearchDao {
                     filterBool.minimumShouldMatch("1");
                     return filterBool;
                 }))
+                .filter(f -> f.bool(visible -> {
+                    visible.should(s -> s.term(t -> t.field("visible").value(true)));
+                    visible.should(s -> s.bool(missing -> missing
+                            .mustNot(mn -> mn.exists(e -> e.field("visible")))));
+                    visible.minimumShouldMatch("1");
+                    return visible;
+                }))
                 .should(s1 -> s1.matchPhrase(mp -> mp
                         .field("product_name")
                         .query(normalized)
@@ -415,6 +424,16 @@ public class FoodSearchDao {
                         .boost(2f)))
                 .minimumShouldMatch("1")
         ));
+    }
+
+    private void addVisibleFilter(BoolQuery.Builder query) {
+        query.filter(f -> f.bool(visible -> {
+            visible.should(s -> s.term(t -> t.field("visible").value(true)));
+            visible.should(s -> s.bool(missing -> missing
+                    .mustNot(mn -> mn.exists(e -> e.field("visible")))));
+            visible.minimumShouldMatch("1");
+            return visible;
+        }));
     }
 
     private void processBarcode(BoolQuery.Builder b, String tokenNoZeros) {

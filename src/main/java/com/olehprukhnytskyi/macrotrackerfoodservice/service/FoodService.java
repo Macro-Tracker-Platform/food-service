@@ -16,6 +16,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.FoodMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.UserFoodFavorite;
+import com.olehprukhnytskyi.macrotrackerfoodservice.repository.jpa.FoodReportRepository;
 import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.FoodRepository;
 import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.UserFoodFavoriteRepository;
 import com.olehprukhnytskyi.macrotrackerfoodservice.util.CacheConstants;
@@ -55,6 +56,7 @@ public class FoodService {
     private final NutrimentsMapper nutrimentsMapper;
     private final FoodRepository foodRepository;
     private final UserFoodFavoriteRepository userFoodFavoriteRepository;
+    private final FoodReportRepository foodReportRepository;
     private final FoodMapper foodMapper;
     private final OutboxRepository outboxRepository;
     private final FoodAssetService foodAssetService;
@@ -236,16 +238,19 @@ public class FoodService {
     public FoodListCacheWrapper findByQueryCached(String query, Long userId,
                                                   int offset, int limit) {
         log.debug("Searching foods query='{}' offset={} limit={}", query, offset, limit);
-        List<String> excludedIds = Collections.emptyList();
+        Set<String> excludedIds = new HashSet<>();
         if (userId != null) {
             List<OriginalIdOnly> originalIds = Optional
                     .ofNullable(foodRepository.findOriginalIdsByUserId(userId))
                     .orElse(Collections.emptyList());
-            excludedIds = originalIds.stream()
+            originalIds.stream()
                     .map(OriginalIdOnly::getOriginalFoodId)
-                    .toList();
+                    .filter(Objects::nonNull)
+                    .forEach(excludedIds::add);
+            excludedIds.addAll(foodReportRepository.findFoodIdsByUserId(userId));
         }
-        List<Food> foods = foodSearchDao.search(query, userId, excludedIds, offset, limit);
+        List<Food> foods = foodSearchDao.search(
+                query, userId, new ArrayList<>(excludedIds), offset, limit);
         return new FoodListCacheWrapper(foodMapper.toDto(foods));
     }
 
@@ -257,6 +262,7 @@ public class FoodService {
     public FoodResponseDto findById(String id) {
         log.debug("Fetching food by id={}", id);
         Food food = foodRepository.findById(id)
+                .filter(Food::isVisible)
                 .orElseThrow(() -> new NotFoundException(FoodErrorCode.FOOD_NOT_FOUND,
                         "Food not found with id: " + id));
         return foodMapper.toDto(food);
@@ -487,10 +493,10 @@ public class FoodService {
     }
 
     private boolean canAccessFood(Food food, Long userId) {
-        return Objects.equals(food.getUserId(), userId)
+        return food.isVisible() && (Objects.equals(food.getUserId(), userId)
                 || food.getUserId() == null
                 || food.isVerifiedByAdmin()
-                || food.getModerationStatus() == ModerationStatus.APPROVED;
+                || food.getModerationStatus() == ModerationStatus.APPROVED);
     }
 
     private boolean canAccessFood(FoodResponseDto food, Long userId) {

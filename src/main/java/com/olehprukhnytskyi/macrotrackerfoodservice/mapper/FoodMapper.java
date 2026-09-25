@@ -27,6 +27,7 @@ public interface FoodMapper {
             @Mapping(target = "userId", ignore = true),
             @Mapping(target = "version", ignore = true),
             @Mapping(target = "originalFoodId", ignore = true),
+            @Mapping(target = "visible", ignore = true),
             @Mapping(target = "moderationStatus", expression =
                     "java(com.olehprukhnytskyi.util.ModerationStatus.PENDING_REVIEW)"),
             @Mapping(target = "verifiedByAdmin", constant = "false")
@@ -51,7 +52,8 @@ public interface FoodMapper {
             @Mapping(target = "version", ignore = true),
             @Mapping(target = "originalFoodId", ignore = true),
             @Mapping(target = "moderationStatus", ignore = true),
-            @Mapping(target = "verifiedByAdmin", ignore = true)
+            @Mapping(target = "verifiedByAdmin", ignore = true),
+            @Mapping(target = "visible", ignore = true)
     })
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateFoodFromPatchDto(FoodPatchRequestDto dto, @MappingTarget Food entity);

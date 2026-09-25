@@ -75,4 +75,9 @@ public class Food {
     @JsonProperty("verified_by_admin")
     @Builder.Default
     private boolean verifiedByAdmin = false;
+
+    @Field(name = "visible")
+    @JsonProperty("visible")
+    @Builder.Default
+    private boolean visible = true;
 }

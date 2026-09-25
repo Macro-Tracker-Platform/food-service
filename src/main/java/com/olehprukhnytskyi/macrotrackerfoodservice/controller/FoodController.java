@@ -7,12 +7,14 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodFavoriteRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPatchRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoBase64RequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodPhotoScanResponseDto;
+import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodReportRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodRequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.FoodVoiceBase64RequestDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.dto.NutritionLabelScanResponseDto;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.BarcodeScanService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodPhotoScanService;
+import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodReportService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodVoiceScanService;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.NutritionLabelScanService;
@@ -54,6 +56,7 @@ import org.springframework.web.multipart.MultipartFile;
 )
 public class FoodController {
     private final FoodService foodService;
+    private final FoodReportService foodReportService;
     private final NutritionLabelScanService nutritionLabelScanService;
     private final BarcodeScanService barcodeScanService;
     private final FoodPhotoScanService foodPhotoScanService;
@@ -139,6 +142,19 @@ public class FoodController {
         FoodResponseDto food = foodService.updateFavorite(
                 id, userId, requestDto.getFavorite());
         return ResponseEntity.ok(food);
+    }
+
+    @Operation(
+            summary = "Report a food product",
+            description = "Submit one report per product for the current user"
+    )
+    @PostMapping("/{id}/reports")
+    public ResponseEntity<Void> reportFood(
+            @RequestHeader(value = CustomHeaders.X_USER_ID) Long userId,
+            @PathVariable String id,
+            @RequestBody @Valid FoodReportRequestDto requestDto) {
+        foodReportService.report(id, userId, requestDto.getReason());
+        return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
     @Operation(

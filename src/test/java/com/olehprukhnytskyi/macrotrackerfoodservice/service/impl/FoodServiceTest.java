@@ -34,6 +34,7 @@ import com.olehprukhnytskyi.macrotrackerfoodservice.mapper.NutrimentsMapper;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Food;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.Nutriments;
 import com.olehprukhnytskyi.macrotrackerfoodservice.model.UserFoodFavorite;
+import com.olehprukhnytskyi.macrotrackerfoodservice.repository.jpa.FoodReportRepository;
 import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.FoodRepository;
 import com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo.UserFoodFavoriteRepository;
 import com.olehprukhnytskyi.macrotrackerfoodservice.service.FoodAssetService;
@@ -68,6 +69,8 @@ class FoodServiceTest {
     private FoodRepository foodRepository;
     @Mock
     private UserFoodFavoriteRepository userFoodFavoriteRepository;
+    @Mock
+    private FoodReportRepository foodReportRepository;
     @Mock
     private OutboxRepository outboxRepository;
     @Mock
@@ -344,6 +347,23 @@ class FoodServiceTest {
         // Then
         assertEquals(List.of(copyDto), result.getItems());
         verify(foodSearchDao).search("curd", userId, List.of(originalId), 0, 10);
+    }
+
+    @Test
+    @DisplayName("When user reported a food, search should exclude it")
+    void findByQuery_whenUserReportedFood_shouldExcludeIt() {
+        long userId = 34L;
+        String reportedId = "reported-food";
+        given(foodReportRepository.findFoodIdsByUserId(userId))
+                .willReturn(List.of(reportedId));
+        given(foodSearchDao.search("curd", userId, List.of(reportedId), 0, 10))
+                .willReturn(List.of());
+        given(foodMapper.toDto(List.of())).willReturn(List.of());
+
+        FoodListCacheWrapper result = foodService.findByQuery("curd", userId, 0, 10);
+
+        assertTrue(result.getItems().isEmpty());
+        verify(foodSearchDao).search("curd", userId, List.of(reportedId), 0, 10);
     }
 
     @Test

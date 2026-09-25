@@ -21,7 +21,8 @@ import org.springframework.scheduling.annotation.EnableAsync;
         )
 )
 @EnableJpaRepositories(basePackages = {
-        "com.olehprukhnytskyi.repository.jpa"
+        "com.olehprukhnytskyi.repository.jpa",
+        "com.olehprukhnytskyi.macrotrackerfoodservice.repository.jpa"
 })
 @EnableMongoRepositories(basePackages = {
         "com.olehprukhnytskyi.macrotrackerfoodservice.repository.mongo"
